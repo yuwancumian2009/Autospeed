@@ -121,7 +121,7 @@ def send_wechat_news_msg(result_text, chart_exists=False):
     
     try:
         token_url = f"{base_url}/cgi-bin/gettoken?corpid={corpid}&corpsecret={secret}"
-        resp = requests.get(token_url, timeout=10).json()
+        resp = requests.get(token_url, timeout=10, verify=False).json()
         if resp.get('errcode') != 0: return False
         access_token = resp.get('access_token')
         
@@ -150,7 +150,7 @@ def send_wechat_news_msg(result_text, chart_exists=False):
             },
             "safe": 0
         }
-        res = requests.post(send_url, json=payload, timeout=10).json()
+        res = requests.post(send_url, json=payload, timeout=10, verify=False).json()
         if res.get('errcode') == 0: return True
         else:
             print(f"企业微信 News 通知发送失败: {res}")
