@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autospeed - 自动测速面板</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f9;}
+        .container { display: flex; gap: 20px; flex-wrap: wrap; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; min-width: 300px; }
+        .full-width-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 20px; width: 100%; box-sizing: border-box;}
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
+        th { background-color: #007bff; color: white; }
+        button { padding: 8px 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;}
+        button:hover { background-color: #218838; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        .btn-test { background-color: #17a2b8; margin-left: 5px;}
+        .btn-test:hover { background-color: #138496; }
+        .btn-filter { background-color: #6c757d; margin-top: 0; margin-left: 5px;}
+        .btn-filter:hover { background-color: #5a6268; }
+        select, input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 80%; margin-top: 5px; margin-bottom: 10px; box-sizing: border-box;}
+        .help-text { font-size: 0.85em; color: #666; margin-top: -5px; margin-bottom: 10px; display: block;}
+
+        .wecom-row { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 12px; }
+        .wecom-col { flex: 1; min-width: 120px; }
+        .wecom-label { display: block; font-weight: bold; font-size: 0.85em; color: #444; margin-bottom: 4px; }
+        .wecom-input { width: 100% !important; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin: 0 !important; }
+        .wecom-actions { margin-top: 15px; display: flex; align-items: center; gap: 10px; }
+        .wecom-actions button { margin-top: 0; }
+        
+        /* 新增：分页组件样式 */
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 20px; margin-bottom: 20px; }
+        .page-btn { padding: 6px 12px; border: 1px solid #007bff; background: white; color: #007bff; cursor: pointer; border-radius: 4px; font-size: 14px; transition: all 0.2s; margin-top: 0;}
+        .page-btn:hover:not(:disabled) { background: #e9f5ff; }
+        .page-btn.active { background: #007bff; color: white; border-color: #007bff; }
+        .page-btn:disabled { border-color: #ccc; color: #ccc; cursor: not-allowed; background: #f9f9f9; }
+    </style>
+</head>
+<body>
+
+    <h2 style="display: flex; align-items: center; gap: 10px; color: #333;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#007bff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m12 14 4-4"/>
+            <path d="M3.34 16A10 10 0 1 1 20.66 16"/>
+        </svg>
+        Autospeed
+    </h2>
+    
+    <div class="container">
+        <div class="card">
+            <h3>🎯 手动即时测速</h3>
+            <label>测速策略选择:</label>
+            <select id="manualMode" onchange="toggleManualFixedServer()">
+                <option value="closest">自动寻找综合最优/最近节点</option>
+                <option value="telecom">尝试寻找最近的 【中国电信】 节点</option>
+                <option value="unicom">尝试寻找最近的 【中国联通】 节点</option>
+                <option value="mobile">尝试寻找最近的 【中国移动】 节点</option>
+                <option value="fixed">手动指定下方列表中特定节点</option>
+            </select>
+            <div id="manualFixedServerDiv" style="display: none;">
+                <label>请选择具体节点:</label>
+                <select id="manualServerId">
+                    <option value="">-- 正在获取附近节点列表... --</option>
+                </select>
+            </div>
+            <button id="manualBtn" onclick="startTest()">立即测速 (最高重试2次)</button>
+            <p id="status" style="color: #007bff; font-weight: bold;"></p>
+        </div>
+
+        <div class="card">
+            <h3>⚙️ 自动定时测速配置</h3>
+            <label>Cron 表达式:</label>
+            <input type="text" id="cronExpr" value="{{ settings.get('cron', '') }}" placeholder="0 */6 * * *">
+            <span class="help-text">标准 Cron 格式，留空则停止定时。</span>
+            <label>自动测速策略:</label>
+            <select id="autoMode" onchange="toggleAutoFixedServer()">
+                <option value="closest" {% if settings.get('mode') == 'closest' %}selected{% endif %}>自动寻找综合最优/最近节点</option>
+                <option value="telecom" {% if settings.get('mode') == 'telecom' %}selected{% endif %}>尝试寻找最近的 【中国电信】 节点</option>
+                <option value="unicom" {% if settings.get('mode') == 'unicom' %}selected{% endif %}>尝试寻找最近的 【中国联通】 节点</option>
+                <option value="mobile" {% if settings.get('mode') == 'mobile' %}selected{% endif %}>尝试寻找最近的 【中国移动】 节点</option>
+                <option value="fixed" {% if settings.get('mode') == 'fixed' %}selected{% endif %}>永久固定指定节点</option>
+            </select>
+            <div id="autoFixedServerDiv" style="display: {% if settings.get('mode') == 'fixed' %}block{% else %}none{% endif %};">
+                <label>请指定固定节点:</label>
+                <select id="autoServerId">
+                    <option value="">-- 正在获取附近节点列表... --</option>
+                </select>
+            </div>
+            <button onclick="saveSettings()">保存定时配置</button>
+            <p id="settingsStatus" style="color: #28a745; font-weight: bold;"></p>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top: 0;">💬 企业微信通知配置</h3>
+            
+            <div class="wecom-row">
+                <div class="wecom-col">
+                    <label class="wecom-label">企业 ID (CorpID)</label>
+                    <input type="text" id="wecomCorpid" class="wecom-input" value="{{ settings.get('wecom_corpid', '') }}">
+                </div>
+                <div class="wecom-col">
+                    <label class="wecom-label">应用 Secret</label>
+                    <input type="password" id="wecomSecret" class="wecom-input" value="{{ settings.get('wecom_secret', '') }}">
+                </div>
+                <div class="wecom-col">
+                    <label class="wecom-label">应用 AgentId</label>
+                    <input type="text" id="wecomAgentid" class="wecom-input" value="{{ settings.get('wecom_agentid', '') }}">
+                </div>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+                <label class="wecom-label">代理地址 (可选)</label>
+                <input type="text" id="wecomProxy" class="wecom-input" value="{{ settings.get('wecom_proxy', '') }}" placeholder="例如 http://116.x.x.x:6666">
+            </div>
+            
+            <div style="margin-bottom: 5px;">
+                <label class="wecom-label" style="color: #d9534f;">公网基准地址 (图文卡片必需)</label>
+                <input type="text" id="externalUrl" class="wecom-input" value="{{ settings.get('external_url', '') }}" placeholder="例如 http://你的动态域名:5000">
+            </div>
+            <span class="help-text">填入能从外网访问到该面板的完整 URL (包含端口)。不填或填局域网 IP，微信卡片将无法显示折线图。</span>
+            
+            <div class="wecom-actions">
+                <button onclick="saveSettings()">保存微信配置</button>
+                <button class="btn-test" onclick="testWechat()">测试推送</button>
+                <span id="wechatStatus" style="color: #28a745; font-weight: bold;"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="full-width-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+            <h3>📈 历史测速趋势</h3>
+            <div>
+                <button class="btn-filter" onclick="loadChart('7')">最近 7 天</button>
+                <button class="btn-filter" onclick="loadChart('30')">最近 30 天</button>
+                <button class="btn-filter" onclick="loadChart('all')">全部数据</button>
+            </div>
+        </div>
+        <div id="speedChart" style="width: 100%; height: 400px; margin-top: 15px;"></div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>时间</th>
+                <th>下载 (Mbps)</th>
+                <th>上传 (Mbps)</th>
+                <th>延迟 (ms)</th>
+                <th>节点名称</th>
+                <th>节点 ID</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in results %}
+            <tr>
+                <td>{{ row[1] }}</td>
+                <td style="color: green; font-weight: bold;">{{ row[2] }}</td>
+                <td style="color: blue; font-weight: bold;">{{ row[3] }}</td>
+                <td>{{ row[4] }}</td>
+                <td>{{ row[5] }}</td>
+                <td>{{ row[6] }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">暂无测速数据</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <div id="pagination" class="pagination"></div>
+
+    <script>
+        let myChart = null;
+
+        window.onload = function() {
+            fetch('/api/servers').then(res => res.json()).then(servers => {
+                const manualSelect = document.getElementById('manualServerId');
+                const autoSelect = document.getElementById('autoServerId');
+                const savedServerId = "{{ settings.get('server_id', '') }}";
+                manualSelect.innerHTML = ''; autoSelect.innerHTML = '';
+                servers.forEach(s => {
+                    manualSelect.add(new Option(s.display, s.id));
+                    const autoOption = new Option(s.display, s.id);
+                    if (s.id == savedServerId) autoOption.selected = true;
+                    autoSelect.add(autoOption);
+                });
+            });
+
+            const chartDom = document.getElementById('speedChart');
+            myChart = echarts.init(chartDom);
+            loadChart('7'); 
+            window.addEventListener('resize', () => myChart.resize());
+            
+            // 新增：前端纯 JS 表格分页逻辑
+            initPagination();
+        };
+
+        function initPagination() {
+            const tbody = document.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            
+            // 如果只有一行且是“暂无测速数据”，则不显示分页
+            if (rows.length === 0 || rows[0].innerText.includes('暂无测速数据')) {
+                document.getElementById('pagination').style.display = 'none';
+                return;
+            }
+
+            const rowsPerPage = 10;
+            const totalPages = Math.ceil(rows.length / rowsPerPage);
+            
+            window.displayPage = function(page) {
+                const start = (page - 1) * rowsPerPage;
+                const end = start + rowsPerPage;
+                
+                rows.forEach((row, index) => {
+                    row.style.display = (index >= start && index < end) ? '' : 'none';
+                });
+
+                const paginationDiv = document.getElementById('pagination');
+                paginationDiv.innerHTML = '';
+
+                if (totalPages > 1) {
+                    // 上一页按钮
+                    const prevBtn = document.createElement('button');
+                    prevBtn.className = 'page-btn';
+                    prevBtn.innerText = '上一页';
+                    prevBtn.disabled = page === 1;
+                    prevBtn.onclick = () => displayPage(page - 1);
+                    paginationDiv.appendChild(prevBtn);
+
+                    // 页码按钮
+                    for (let i = 1; i <= totalPages; i++) {
+                        const btn = document.createElement('button');
+                        btn.className = `page-btn ${i === page ? 'active' : ''}`;
+                        btn.innerText = i;
+                        btn.onclick = () => displayPage(i);
+                        paginationDiv.appendChild(btn);
+                    }
+
+                    // 下一页按钮
+                    const nextBtn = document.createElement('button');
+                    nextBtn.className = 'page-btn';
+                    nextBtn.innerText = '下一页';
+                    nextBtn.disabled = page === totalPages;
+                    nextBtn.onclick = () => displayPage(page + 1);
+                    paginationDiv.appendChild(nextBtn);
+                }
+            };
+            
+            // 默认展示第一页
+            displayPage(1);
+        }
+
+        function loadChart(timeframe) {
+            myChart.showLoading();
+            fetch(`/api/history?timeframe=${timeframe}`)
+            .then(res => res.json())
+            .then(data => {
+                myChart.hideLoading();
+                const option = {
+                    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                    legend: { data: ['下载速率 (Mbps)', '上传速率 (Mbps)', '延迟 (ms)'] },
+                    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                    xAxis: { type: 'category', boundaryGap: false, data: data.timestamps },
+                    yAxis: [
+                        { type: 'value', name: '速率 (Mbps)', position: 'left', axisLine: { show: true, lineStyle: { color: '#5470C6' } } },
+                        { type: 'value', name: '延迟 (ms)', position: 'right', splitLine: { show: false }, axisLine: { show: true, lineStyle: { color: '#EE6666' } } }
+                    ],
+                    dataZoom: [{ type: 'inside', start: 0, end: 100 }, { start: 0, end: 100 }],
+                    series: [
+                        { name: '下载速率 (Mbps)', type: 'line', smooth: true, itemStyle: { color: 'green' }, data: data.downloads },
+                        { name: '上传速率 (Mbps)', type: 'line', smooth: true, itemStyle: { color: 'blue' }, data: data.uploads },
+                        { name: '延迟 (ms)', type: 'line', smooth: true, yAxisIndex: 1, itemStyle: { color: 'orange' }, data: data.pings }
+                    ]
+                };
+                myChart.setOption(option);
+            });
+        }
+
+        function toggleManualFixedServer() { document.getElementById('manualFixedServerDiv').style.display = (document.getElementById('manualMode').value === 'fixed') ? 'block' : 'none'; }
+        function toggleAutoFixedServer() { document.getElementById('autoFixedServerDiv').style.display = (document.getElementById('autoMode').value === 'fixed') ? 'block' : 'none'; }
+        
+        function startTest() {
+            const btn = document.getElementById('manualBtn');
+            const status = document.getElementById('status');
+            btn.disabled = true;
+            status.innerText = "测速中，如果遇到波动会自动重试，请耐心等待...";
+            fetch('/api/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: document.getElementById('manualMode').value, server_id: document.getElementById('manualServerId').value })
+            }).then(res => res.json()).then(data => {
+                if(data.status === 'success') location.reload(); 
+                else { status.innerText = "测速异常，请检查微信通知收到的报错原因。"; btn.disabled = false; }
+            });
+        }
+
+        function collectSettings() {
+            return {
+                cron: document.getElementById('cronExpr').value,
+                mode: document.getElementById('autoMode').value,
+                server_id: document.getElementById('autoServerId').value,
+                wecom_corpid: document.getElementById('wecomCorpid').value,
+                wecom_secret: document.getElementById('wecomSecret').value,
+                wecom_agentid: document.getElementById('wecomAgentid').value,
+                wecom_proxy: document.getElementById('wecomProxy').value,
+                external_url: document.getElementById('externalUrl').value 
+            };
+        }
+
+        function saveSettings() {
+            fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectSettings()) })
+            .then(res => res.json()).then(data => {
+                if(data.status === 'success') {
+                    document.getElementById('settingsStatus').innerText = "✅ 设置已保存生效！";
+                    setTimeout(() => document.getElementById('settingsStatus').innerText = "", 3000);
+                }
+            });
+        }
+
+        function testWechat() {
+            const status = document.getElementById('wechatStatus');
+            status.innerText = "正在发送..."; status.style.color = "#007bff";
+            fetch('/api/test_wechat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectSettings()) })
+            .then(res => res.json()).then(data => {
+                if(data.status === 'success') {
+                    status.innerText = "✅ 测试消息已发送！"; status.style.color = "#28a745";
+                } else {
+                    status.innerText = "❌ 发送失败，请检查配置。"; status.style.color = "red";
+                }
+                setTimeout(() => status.innerText = "", 5000);
+            });
+        }
+    </script>
+</body>
+</html>
