@@ -1,15 +1,12 @@
 version: '3.8'
 
 services:
-  autospeed:
-    build: .
+    image: yuwancumian2009/autospeed:latest
     container_name: autospeed
     restart: always
     volumes:
       # 挂载数据库文件以持久化保存测速数据
       - ./data:/app/data
-      - ./app.py:/app/app.py
-      - ./templates:/app/templates
       # 挂载宿主机时间，确保定时任务和记录的时间准确
       - /etc/localtime:/etc/localtime:ro
     environment:
@@ -25,9 +22,27 @@ networks:
     driver: macvlan
     driver_opts:
       # 这里填入你宿主机的真实物理网卡名称，例如 eth0
-      parent: enp4s0-ovs
+      parent: eth0
     ipam:
       config:
         # 这里填入你家的局域网段和网关
         - subnet: 192.168.1.0/24
           gateway: 192.168.1.1
+
+version: '3.8'
+
+services:
+  autospeed:
+    image: yuwancumian2009/autospeed:latest
+    container_name: autospeed
+    restart: always
+    ports:
+      # 左边是宿主机访问端口，可根据需要修改；右边 5000 是容器内部端口，不要改
+      - "5000:5000"
+    volumes:
+      # 映射数据目录，持久化保存 SQLite 数据库和配置
+      - ./data:/app/data
+      # 同步宿主机时区，确保定时测速的时间准确
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=Asia/Shanghai
