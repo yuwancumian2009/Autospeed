@@ -1,0 +1,44 @@
+name: Publish Docker Image
+
+# 触发条件：当你发布一个新的 Release 时
+on:
+  release:
+    types: [published]
+
+jobs:
+  push_to_registry:
+    name: Push Docker image to Docker Hub
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 拉取仓库代码
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      # 2. 登录 Docker Hub
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 3. 提取 Docker 的标签 (Tags)
+      # 它会自动把你的 GitHub Release 版本号 (比如 v1.0.0) 变成 Docker 的 Tag
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # 请把这里替换为你的真实 Docker Hub 仓库路径，例如：zhangsan/speedtest-tracker
+          images: yuwancumian2009/autospeed
+
+      # 4. 配置 Buildx (支持更高级的构建特性)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 5. 构建并推送镜像
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
