@@ -9,7 +9,8 @@ from flask import Flask, render_template, request, jsonify, send_file
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import requests
-
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # 必须设置 Matplotlib 使用非交互模式后台绘图，避免没有 X 服务报错
 import matplotlib
 matplotlib.use('Agg') 
