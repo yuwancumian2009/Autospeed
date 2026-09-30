@@ -4,20 +4,12 @@
   const { ElMessage, ElMessageBox } = ElementPlus;
   const BOOT = window.__BOOT__ || {};
 
-  // ---------- 令牌 ----------
-  const urlTok = new URLSearchParams(location.search).get('token');
-  if (urlTok) localStorage.setItem('as_token', urlTok);
+  // ---------- 鉴权 ----------
+  // 登录态由后端会话 Cookie 维持（同源请求自动携带），前端不再需要令牌。
   const api = axios.create({ timeout: 60000 });
-  api.interceptors.request.use(cfg => {
-    const t = localStorage.getItem('as_token');
-    if (t) cfg.headers['X-Auth-Token'] = t;
-    return cfg;
-  });
 
   const app = createApp({
     setup() {
-      const needToken = ref(false);
-      const tokenInput = ref('');
       const activeMenu = ref('dashboard');
       const drawer = ref(false);
       const isMobile = ref(window.matchMedia('(max-width: 768px)').matches);
@@ -76,7 +68,7 @@
         strict_mode: BOOT.settings?.strict_mode || '1',
       });
       const notifyForm = reactive({ wecom_secret: '' });
-      const sysForm = reactive({ auth_token: '' });
+      const sysForm = reactive({ panel_password: '' });
       const timeframe = ref('7');
       const wechatMsg = ref('');
       const wechatOk = ref(false);
@@ -197,14 +189,24 @@
 
       function handleErr(e) {
         const st = e?.response?.status;
-        if (st === 401) { needToken.value = true; return; }
+        // 未登录 / 会话过期 -> 交给后端的登录页
+        if (st === 401) { location.href = '/login'; return; }
         ElMessage.error(e?.response?.data?.message || e.message || '请求失败');
       }
 
-      function submitToken() {
-        localStorage.setItem('as_token', tokenInput.value.trim());
-        needToken.value = false;
-        boot();
+      function logout() { location.href = '/logout'; }
+
+      async function clearPassword() {
+        try {
+          await ElMessageBox.confirm('关闭后任何人打开面板都不需要密码，确定吗？', '关闭密码保护',
+                                     { type: 'warning', confirmButtonText: '确定关闭', cancelButtonText: '取消' });
+        } catch (e) { return; }   // 用户取消
+        try {
+          await api.post('/api/settings', { panel_password: '', clear_password: true });
+          ElMessage.success('已关闭密码保护');
+          sysForm.panel_password = '';
+          loadSettings();
+        } catch (e) { handleErr(e); }
       }
 
       // ---------- 动作 ----------
@@ -246,14 +248,14 @@
       async function saveSettings(applySched) {
         const payload = Object.assign({}, settings);
         if (notifyForm.wecom_secret) payload.wecom_secret = notifyForm.wecom_secret;
-        if (sysForm.auth_token) payload.auth_token = sysForm.auth_token;
+        if (sysForm.panel_password) payload.panel_password = sysForm.panel_password;
         try {
           const { data } = await api.post('/api/settings', payload);
           nextRun.value = data.next_run;
           if (applySched) schedState.value = data.schedule.includes('暂停') ? '已暂停' : '运行中';
           ElMessage.success('已保存' + (applySched ? '：' + data.schedule : ''));
           notifyForm.wecom_secret = '';
-          sysForm.auth_token = '';
+          sysForm.panel_password = '';
           loadSettings();
         } catch (e) { handleErr(e); }
       }
@@ -279,8 +281,7 @@
       }
 
       function exportCsv() {
-        const t = localStorage.getItem('as_token');
-        window.open('/api/export.csv' + (t ? '?token=' + encodeURIComponent(t) : ''), '_blank');
+        window.open('/api/export.csv', '_blank');
       }
 
       function go(k) { activeMenu.value = k; }
@@ -302,7 +303,6 @@
           latest.value = results.value[0] || null;
           nextRun.value = data.next_run;
           schedState.value = data.sched_state;
-          needToken.value = false;
         } catch (e) { handleErr(e); }
       }
 
@@ -323,8 +323,7 @@
       });
 
       return {
-        needToken, tokenInput, submitToken,
-        activeMenu, drawer, isMobile, menus, currentMenu, go,
+        activeMenu, drawer, isMobile, menus, currentMenu, go, logout,
         settings, results, total, page, pageSize, pagedResults,
         servers, serverErr, loadingServers, cnCount, regions, nodeHealth, backends,
         running, selftesting, selftest, job, jobType, jobTitle,
@@ -332,7 +331,8 @@
         wechatMsg, wechatOk, testingWechat,
         fmt, statCards, nextRun, schedState,
         loadServers, loadResults, loadNodeHealth, loadHistory, clearModeNotice,
-        startTest, runSelftest, saveSettings, testWechat, prune, exportCsv,
+        startTest, runSelftest, saveSettings, testWechat, prune, exportCsv, logout,
+        clearPassword,
       };
     },
   });

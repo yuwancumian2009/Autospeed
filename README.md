@@ -20,7 +20,7 @@ Vue3 + Element Plus 前端，Flask + APScheduler 后端，SQLite 存储，单容
 - **定时调度** — 标准 5 段 Cron，可在页面上改，支持暂停
 - **企业微信推送** — 成功 / 失败分别可控，支持 forwarding proxy
 - **历史与图表** — 分页表格、趋势曲线、CSV 导出、按天数自动清理
-- **访问令牌** — 设置后全站需 `?token=` 或 cookie；密钥类配置永不回传前端
+- **访问密码** — 设置后全站需在登录页输入密码（会话 Cookie，不再需要 URL 带 `?token=`）；密钥类配置永不回传前端
 
 ## 快速开始
 
@@ -79,7 +79,8 @@ services:
 | `notify_on_fail` | 失败推送 | `1` |
 | `retention_days` | 历史保留天数，`0` 表示不清理 | `90` |
 | `speed_alert_below` | 下行低于此值时告警（Mbps） | `50` |
-| `auth_token` | 访问令牌，留空则免登录 | 空 |
+| `panel_password` | 访问密码，留空则免登录；设置后全站跳登录页 | 空 |
+| `session_secret` | 登录态 Cookie 签名密钥，首次启动自动生成 | 自动 |
 | `wecom_corpid` | 企业微信企业 ID | 空 |
 | `wecom_secret` | 企业微信应用 Secret | 空 |
 | `wecom_agentid` | 企业微信应用 AgentId | 空 |
@@ -125,6 +126,8 @@ http://<proxy-host>:<port>/cgi-bin/gettoken?...
 |---|---|---|
 | GET | `/` | 面板首页 |
 | GET | `/healthz` | 健康检查（免鉴权） |
+| GET/POST | `/login` | 密码登录页（免鉴权；未设密码时直接放行） |
+| GET | `/logout` | 退出登录，清除会话 |
 | GET | `/api/boot` | 首屏数据（设置 + 最近记录 + 下次定时） |
 | GET | `/api/servers` | 可用节点列表 |
 | GET | `/api/backends` | 后端列表 |

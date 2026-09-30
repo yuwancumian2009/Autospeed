@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 · Autospeed</title>
+  <link rel="stylesheet" href="/static/vendor/element-plus.css">
+  <style>
+    /* 登录页独立样式，沿用面板配色：主色 #409EFF、深色 #001529 */
+    html, body { height: 100%; margin: 0; padding: 0; }
+    body {
+      font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      background: linear-gradient(160deg, #001529 0%, #003a70 55%, #001529 100%);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px; box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+    }
+    .login-card {
+      width: 100%; max-width: 380px; background: #fff; border-radius: 12px;
+      padding: 40px 32px 32px; box-sizing: border-box;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, .32);
+    }
+    .login-logo { text-align: center; margin-bottom: 28px; }
+    .login-logo .ring {
+      width: 60px; height: 60px; margin: 0 auto 14px; border-radius: 50%;
+      background: linear-gradient(135deg, #409EFF, #79bbff);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 6px 18px rgba(64, 158, 255, .38);
+    }
+    .login-logo .ring svg { width: 30px; height: 30px; stroke: #fff; }
+    .login-logo h1 { margin: 0; font-size: 22px; font-weight: 700; color: #303133; letter-spacing: .5px; }
+    .login-logo p { margin: 8px 0 0; font-size: 13px; color: #909399; }
+    .field { position: relative; margin-bottom: 8px; }
+    .field input {
+      width: 100%; box-sizing: border-box; height: 44px;
+      padding: 0 42px 0 14px; font-size: 15px; color: #303133;
+      border: 1px solid #dcdfe6; border-radius: 8px; outline: none;
+      transition: border-color .2s, box-shadow .2s; background: #fff;
+    }
+    .field input::placeholder { color: #c0c4cc; }
+    .field input:focus { border-color: #409EFF; box-shadow: 0 0 0 3px rgba(64, 158, 255, .12); }
+    .field .toggle {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      width: 34px; height: 34px; border: none; background: transparent;
+      cursor: pointer; color: #909399; font-size: 15px; line-height: 1;
+      display: flex; align-items: center; justify-content: center; border-radius: 6px;
+    }
+    .field .toggle:hover { color: #409EFF; background: #f5f7fa; }
+    .err {
+      min-height: 20px; margin: 10px 0 4px; font-size: 13px; color: #F56C6C;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .err:empty { visibility: hidden; }
+    button.submit {
+      width: 100%; height: 44px; margin-top: 8px; border: none; border-radius: 8px;
+      background: #409EFF; color: #fff; font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: background .2s, transform .05s;
+      font-family: inherit;
+    }
+    button.submit:hover { background: #66b1ff; }
+    button.submit:active { transform: translateY(1px); }
+    .foot { margin-top: 22px; text-align: center; font-size: 12px; color: #c0c4cc; }
+  </style>
+</head>
+<body>
+  <form class="login-card" method="post" action="/login">
+    <input type="hidden" name="next" value="{{ nxt }}">
+    <div class="login-logo">
+      <div class="ring">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 21a9 9 0 1 0-9-9"></path>
+          <path d="M3 12a9 9 0 0 1 9-9"></path>
+          <path d="M12 12l4.5-4.5"></path>
+        </svg>
+      </div>
+      <h1>Autospeed</h1>
+      <p>家庭宽带测速面板</p>
+    </div>
+
+    <div class="field">
+      <input id="pw" name="password" type="password" placeholder="请输入访问密码"
+             autocomplete="current-password" autofocus required>
+      <button class="toggle" type="button" id="tg" title="显示密码">👁</button>
+    </div>
+
+    <div class="err">{% if error %}⚠ {{ error }}{% endif %}</div>
+
+    <button class="submit" type="submit">登 录</button>
+    <div class="foot">需要密码才能访问</div>
+  </form>
+
+  <script>
+    // 显示/隐藏密码
+    (function () {
+      var pw = document.getElementById('pw'), tg = document.getElementById('tg');
+      tg.addEventListener('click', function () {
+        var show = pw.type === 'password';
+        pw.type = show ? 'text' : 'password';
+        tg.textContent = show ? '🙈' : '👁';
+        pw.focus();
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -11,20 +11,8 @@
 {# 下面整段是 Vue 模板，用 raw 让 Jinja 不要解析其中的 {{ }} #}
 {% raw %}
 <div id="app" v-cloak>
-  <!-- 未授权 -->
-  <div v-if="needToken" class="login-wrap">
-    <el-card class="login-card">
-      <div class="login-logo">
-        <h1>Autospeed</h1>
-        <p>请输入访问令牌</p>
-      </div>
-      <el-input v-model="tokenInput" placeholder="访问令牌" show-password
-                @keyup.enter="submitToken"></el-input>
-      <el-button type="primary" class="mt16" style="width:100%" @click="submitToken">进入</el-button>
-    </el-card>
-  </div>
-
-  <el-container v-else class="app-shell">
+  <!-- 未登录时后端会 302 到 /login，这里不再需要内置登录卡片 -->
+  <el-container class="app-shell">
     <!-- 侧边栏（桌面） -->
     <el-aside width="200px" class="app-aside">
       <div class="aside-logo">
@@ -51,8 +39,9 @@
           <el-tag size="small" :type="schedState === '运行中' ? 'success' : 'warning'">
             {{ schedState }}
           </el-tag>
-          <el-tag v-if="settings.auth_token_set" size="small" type="success">已鉴权</el-tag>
-          <el-tag v-else size="small" type="danger">无鉴权</el-tag>
+          <el-tag v-if="settings.panel_password_set" size="small" type="success">密码保护</el-tag>
+          <el-tag v-else size="small" type="danger">无密码</el-tag>
+          <el-button size="small" text @click="logout" v-if="settings.panel_password_set">退出</el-button>
         </div>
       </el-header>
 
@@ -417,10 +406,15 @@
           <el-card shadow="never">
             <template #header><b>访问与数据</b></template>
             <el-form label-width="130px" label-position="left">
-              <el-form-item label="访问令牌">
-                <el-input v-model="sysForm.auth_token" type="password" show-password
-                          :placeholder="settings.auth_token_set ? '已启用（留空则不修改）' : '未启用'"></el-input>
-                <span class="muted">设置后所有页面需 ?token=xxx 或请求头 X-Auth-Token</span>
+              <el-form-item label="访问密码">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                  <el-input v-model="sysForm.panel_password" type="password" show-password
+                            style="max-width:260px"
+                            :placeholder="settings.panel_password_set ? '已启用（留空则不修改）' : '未设置（任何人可访问）'"></el-input>
+                  <el-button v-if="settings.panel_password_set" size="small" plain type="danger"
+                             @click="clearPassword">关闭密码保护</el-button>
+                </div>
+                <div class="muted" style="width:100%">设置后打开面板会跳转到登录页，输入密码即可。留空 = 不鉴权。</div>
               </el-form-item>
               <el-form-item label="数据保留天数">
                 <el-input-number v-model="settings.retention_days" :min="0" :max="3650"></el-input-number>

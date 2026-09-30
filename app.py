@@ -17,7 +17,7 @@ autospeed — 家庭宽带自动测速面板（重写版）
   * 三种可插拔后端：ookla / http(国内直连) / librespeed
   * 地区守卫：实际节点国家与期望不符时打标 + 告警
   * 异步执行 + 进度查询，前端不再干等
-  * 可选的访问令牌鉴权
+  * 可选的密码登录鉴权（会话 Cookie，不再需要 URL 带 token）
 """
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ import csv
 import io
 import json
 import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -33,7 +34,8 @@ from datetime import datetime, timedelta
 
 import requests
 import urllib3
-from flask import Flask, Response, jsonify, render_template, request, send_file
+from flask import (Flask, Response, jsonify, redirect, render_template,
+                   request, send_file, session, url_for)
 
 from backends import (BackendError, DEFAULT_HTTP_TARGETS, build_backend,
                       split_url, tcp_latency_ms)
@@ -89,10 +91,13 @@ DEFAULT_SETTINGS = {
     # 其它
     "tls_insecure": "0",
     "retention_days": "365",
-    "auth_token": "",
+    # 访问密码：留空 = 不鉴权（任何人不登录即可访问）
+    "panel_password": "",
+    # 会话签名密钥，首次启动自动生成，用于登录态 Cookie
+    "session_secret": "",
 }
 
-SECRET_KEYS = {"wecom_secret", "auth_token"}
+SECRET_KEYS = {"wecom_secret", "panel_password", "session_secret"}
 BOOL_KEYS = {"cron_enabled", "strict_mode", "notify_on_success",
              "notify_on_fail", "tls_insecure"}
 
@@ -139,8 +144,33 @@ def init_db():
     for k, v in DEFAULT_SETTINGS.items():
         c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
     migrate_legacy_mode(c)
+    migrate_auth_token(c)
+    ensure_session_secret(c)
     conn.commit()
     conn.close()
+
+
+def migrate_auth_token(c):
+    """旧版用 URL 令牌(?token=xxx)鉴权，新版改成密码登录。
+
+    把旧的 auth_token 搬过来当访问密码，用户不用重新设一遍。
+    """
+    old = c.execute("SELECT value FROM settings WHERE key='auth_token'").fetchone()
+    new = c.execute("SELECT value FROM settings WHERE key='panel_password'").fetchone()
+    old_v = (old[0] or "").strip() if old else ""
+    new_v = (new[0] or "").strip() if new else ""
+    if old_v and not new_v:
+        c.execute("REPLACE INTO settings (key, value) VALUES ('panel_password', ?)", (old_v,))
+        log("settings: 已把旧的访问令牌迁移为访问密码（登录页使用）")
+
+
+def ensure_session_secret(c):
+    """登录态 Cookie 需要一个稳定的签名密钥，首次启动生成并持久化。"""
+    row = c.execute("SELECT value FROM settings WHERE key='session_secret'").fetchone()
+    if not row or not (row[0] or "").strip():
+        c.execute("REPLACE INTO settings (key, value) VALUES ('session_secret', ?)",
+                  (secrets.token_hex(32),))
+        log("settings: 已生成会话签名密钥")
 
 
 def migrate_legacy_mode(c):
@@ -819,35 +849,66 @@ def next_run_text():
 # 鉴权
 # ==========================================================================
 
-def _token_ok():
-    tok = (all_settings().get("auth_token") or "").strip()
-    if not tok:
+# 免登录的路径：健康检查、登录页、静态资源
+OPEN_PATHS = {"/healthz", "/login", "/api/login", "/logout", "/favicon.ico"}
+
+
+def panel_password():
+    return (all_settings().get("panel_password") or "").strip()
+
+
+def is_authed():
+    """未设密码 = 完全开放；设了密码则要求已登录的会话。
+
+    仍保留 X-Auth-Token 请求头方式，方便脚本/自动化调用。
+    不再支持 URL 上带 ?token=（太麻烦，改成登录页）。
+    """
+    pw = panel_password()
+    if not pw:
         return True
-    supplied = (request.headers.get("X-Auth-Token")
-                or request.args.get("token")
-                or request.cookies.get("as_token") or "")
-    return supplied == tok
+    if session.get("auth") is True:
+        return True
+    hdr = (request.headers.get("X-Auth-Token") or "").strip()
+    return bool(hdr) and secrets.compare_digest(hdr, pw)
 
 
 @app.before_request
 def _guard():
-    if request.path in ("/healthz",):
+    p = request.path
+    if p in OPEN_PATHS or p.startswith("/static/"):
         return None
-    if _token_ok():
+    if is_authed():
         return None
-    if request.path.startswith("/api/"):
-        return jsonify({"status": "error", "message": "未授权：请提供访问令牌"}), 401
-    return Response("未授权：请在 URL 后加 ?token=你的令牌", 401, mimetype="text/plain")
+    if p.startswith("/api/"):
+        return jsonify({"status": "error", "message": "未登录，请先登录"}), 401
+    return redirect(url_for("login", next=p))
 
 
-@app.after_request
-def _remember_token(resp):
-    """带 ?token= 访问过之后写 cookie，后续 API 调用不用再带。"""
-    tok = request.args.get("token")
-    if tok and (all_settings().get("auth_token") or "").strip() == tok:
-        resp.set_cookie("as_token", tok, max_age=90 * 24 * 3600,
-                        httponly=False, samesite="Lax")
-    return resp
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """密码登录页。未设密码时直接放行。"""
+    pw = panel_password()
+    if not pw:
+        return redirect(url_for("index"))
+    nxt = request.values.get("next") or "/"
+    if not nxt.startswith("/") or nxt.startswith("//"):
+        nxt = "/"
+    if request.method == "GET":
+        if session.get("auth") is True:
+            return redirect(nxt)
+        return render_template("login.html", error="", nxt=nxt)
+    supplied = (request.form.get("password") or "").strip()
+    if supplied and secrets.compare_digest(supplied, pw):
+        session.permanent = True
+        session["auth"] = True
+        return redirect(nxt)
+    return render_template("login.html", error="密码不正确", nxt=nxt), 401
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 # ==========================================================================
@@ -1030,7 +1091,12 @@ def api_settings():
     for k, v in data.items():
         if k in DEFAULT_SETTINGS:
             if k in SECRET_KEYS and (v is None or str(v).strip() == ""):
-                continue          # 留空 = 不改动已保存的密钥
+                # 密钥留空 = 不改动已保存的值。
+                # 例外：panel_password 必须能显式关闭，否则用户一旦设了密码
+                # 就再也关不掉（前端传 clear_password=true 表示"关闭密码保护"）。
+                if k == "panel_password" and data.get("clear_password"):
+                    set_setting("panel_password", "")
+                continue
             set_setting(k, "" if v is None else str(v))
     state = apply_schedule()
     return jsonify({"status": "success", "schedule": state, "next_run": next_run_text()})
@@ -1115,6 +1181,13 @@ def serve_chart():
 
 
 init_db()
+app.secret_key = get_setting("session_secret") or secrets.token_hex(32)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+)
+
 if __name__ == "__main__":
     apply_schedule()
     scheduler.start()
