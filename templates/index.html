@@ -1,337 +1,464 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Autospeed - 自动测速面板</title>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f9;}
-        .container { display: flex; gap: 20px; flex-wrap: wrap; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; min-width: 300px; }
-        .full-width-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 20px; width: 100%; box-sizing: border-box;}
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
-        th { background-color: #007bff; color: white; }
-        button { padding: 8px 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;}
-        button:hover { background-color: #218838; }
-        button:disabled { background-color: #6c757d; cursor: not-allowed; }
-        .btn-test { background-color: #17a2b8; margin-left: 5px;}
-        .btn-test:hover { background-color: #138496; }
-        .btn-filter { background-color: #6c757d; margin-top: 0; margin-left: 5px;}
-        .btn-filter:hover { background-color: #5a6268; }
-        select, input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 80%; margin-top: 5px; margin-bottom: 10px; box-sizing: border-box;}
-        .help-text { font-size: 0.85em; color: #666; margin-top: -5px; margin-bottom: 10px; display: block;}
-
-        .wecom-row { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 12px; }
-        .wecom-col { flex: 1; min-width: 120px; }
-        .wecom-label { display: block; font-weight: bold; font-size: 0.85em; color: #444; margin-bottom: 4px; }
-        .wecom-input { width: 100% !important; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; margin: 0 !important; }
-        .wecom-actions { margin-top: 15px; display: flex; align-items: center; gap: 10px; }
-        .wecom-actions button { margin-top: 0; }
-        
-        /* 新增：分页组件样式 */
-        .pagination { display: flex; justify-content: center; align-items: center; gap: 5px; margin-top: 20px; margin-bottom: 20px; }
-        .page-btn { padding: 6px 12px; border: 1px solid #007bff; background: white; color: #007bff; cursor: pointer; border-radius: 4px; font-size: 14px; transition: all 0.2s; margin-top: 0;}
-        .page-btn:hover:not(:disabled) { background: #e9f5ff; }
-        .page-btn.active { background: #007bff; color: white; border-color: #007bff; }
-        .page-btn:disabled { border-color: #ccc; color: #ccc; cursor: not-allowed; background: #f9f9f9; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Autospeed · 家庭宽带测速面板</title>
+  <link rel="stylesheet" href="/static/vendor/element-plus.css">
+  <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
+{# 下面整段是 Vue 模板，用 raw 让 Jinja 不要解析其中的 {{ }} #}
+{% raw %}
+<div id="app" v-cloak>
+  <!-- 未授权 -->
+  <div v-if="needToken" class="login-wrap">
+    <el-card class="login-card">
+      <div class="login-logo">
+        <h1>Autospeed</h1>
+        <p>请输入访问令牌</p>
+      </div>
+      <el-input v-model="tokenInput" placeholder="访问令牌" show-password
+                @keyup.enter="submitToken"></el-input>
+      <el-button type="primary" class="mt16" style="width:100%" @click="submitToken">进入</el-button>
+    </el-card>
+  </div>
 
-    <h2 style="display: flex; align-items: center; gap: 10px; color: #333;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#007bff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m12 14 4-4"/>
-            <path d="M3.34 16A10 10 0 1 1 20.66 16"/>
-        </svg>
-        Autospeed
-    </h2>
-    
-    <div class="container">
-        <div class="card">
-            <h3>🎯 手动即时测速</h3>
-            <label>测速策略选择:</label>
-            <select id="manualMode" onchange="toggleManualFixedServer()">
-                <option value="closest">自动寻找综合最优/最近节点</option>
-                <option value="telecom">尝试寻找最近的 【中国电信】 节点</option>
-                <option value="unicom">尝试寻找最近的 【中国联通】 节点</option>
-                <option value="mobile">尝试寻找最近的 【中国移动】 节点</option>
-                <option value="fixed">手动指定下方列表中特定节点</option>
-            </select>
-            <div id="manualFixedServerDiv" style="display: none;">
-                <label>请选择具体节点:</label>
-                <select id="manualServerId">
-                    <option value="">-- 正在获取附近节点列表... --</option>
-                </select>
+  <el-container v-else class="app-shell">
+    <!-- 侧边栏（桌面） -->
+    <el-aside width="200px" class="app-aside">
+      <div class="aside-logo">
+        <el-icon><Odometer /></el-icon><span>Autospeed</span>
+      </div>
+      <el-menu class="aside-menu" :default-active="activeMenu" @select="go">
+        <el-menu-item v-for="m in menus" :key="m.key" :index="m.key">
+          <el-icon><component :is="m.icon" /></el-icon><span>{{ m.label }}</span>
+        </el-menu-item>
+      </el-menu>
+    </el-aside>
+
+    <el-container>
+      <el-header class="app-header">
+        <div class="header-left">
+          <el-button class="mobile-menu-btn" text @click="drawer = true">
+            <el-icon size="20"><Operation /></el-icon>
+          </el-button>
+          <el-icon size="20"><Odometer /></el-icon>
+          <span class="header-title">{{ currentMenu.label }}</span>
+        </div>
+        <div class="header-right">
+          <el-tag size="small" type="info">{{ settings.backend || 'ookla' }}</el-tag>
+          <el-tag size="small" :type="schedState === '运行中' ? 'success' : 'warning'">
+            {{ schedState }}
+          </el-tag>
+          <el-tag v-if="settings.auth_token_set" size="small" type="success">已鉴权</el-tag>
+          <el-tag v-else size="small" type="danger">无鉴权</el-tag>
+        </div>
+      </el-header>
+
+      <el-main class="app-main">
+        <!-- ================= 仪表盘 ================= -->
+        <div v-if="activeMenu === 'dashboard'" class="page-fill">
+          <el-row :gutter="12">
+            <el-col v-for="s in statCards" :key="s.label" :xs="12" :sm="6" class="stat-cell">
+              <el-card shadow="hover"><div class="stat-card">
+                <div class="stat-num" :class="s.cls">{{ s.value }}</div>
+                <div class="stat-label">{{ s.label }}</div>
+              </div></el-card>
+            </el-col>
+          </el-row>
+
+          <el-card class="mt12" shadow="never">
+            <template #header>
+              <div class="row-actions" style="justify-content:space-between">
+                <b>趋势图</b>
+                <el-radio-group v-model="timeframe" size="small" @change="loadHistory">
+                  <el-radio-button value="1">1天</el-radio-button>
+                  <el-radio-button value="7">7天</el-radio-button>
+                  <el-radio-button value="30">30天</el-radio-button>
+                  <el-radio-button value="all">全部</el-radio-button>
+                </el-radio-group>
+              </div>
+            </template>
+            <div id="trend-chart" style="height:300px"></div>
+          </el-card>
+
+          <el-card class="mt12" shadow="never">
+            <template #header>
+              <div class="row-actions" style="justify-content:space-between">
+                <b>最近记录 <span class="muted">（共 {{ total }} 条）</span></b>
+                <el-button size="small" @click="loadResults">刷新</el-button>
+              </div>
+            </template>
+            <table class="ep-table as-card-table">
+              <thead><tr>
+                <th>时间</th><th>下行</th><th>上行</th><th>延迟</th><th>节点</th><th>后端</th><th>告警</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="r in pagedResults" :key="r.id">
+                  <td data-label="时间">{{ r.timestamp }}</td>
+                  <td data-label="下行"><b style="color:#67C23A">{{ fmt(r.download) }}</b> Mbps</td>
+                  <td data-label="上行">{{ r.upload === null ? '—' : fmt(r.upload) + ' Mbps' }}</td>
+                  <td data-label="延迟">{{ fmt(r.ping) }} ms</td>
+                  <td data-label="节点" class="full">
+                    {{ r.server_name }}
+                    <el-tag v-if="r.server_country" size="small"
+                            :type="r.server_country === settings.expected_country ? 'success' : 'danger'">
+                      {{ r.server_country }}</el-tag>
+                  </td>
+                  <td data-label="后端">{{ r.backend || 'ookla' }}</td>
+                  <td data-label="告警">
+                    <el-tag v-if="r.warn" type="warning" size="small">{{ r.warn }}</el-tag>
+                    <span v-else class="muted">正常</span>
+                  </td>
+                </tr>
+                <tr v-if="!pagedResults.length"><td colspan="7" class="ep-empty">暂无数据</td></tr>
+              </tbody>
+            </table>
+            <div class="history-pagination">
+              <el-pagination background small layout="prev, pager, next, jumper"
+                             :total="total" :page-size="pageSize"
+                             :current-page="page" @current-change="loadResults"></el-pagination>
             </div>
-            <button id="manualBtn" onclick="startTest()">立即测速 (最高重试2次)</button>
-            <p id="status" style="color: #007bff; font-weight: bold;"></p>
+          </el-card>
         </div>
 
-        <div class="card">
-            <h3>⚙️ 自动定时测速配置</h3>
-            <label>Cron 表达式:</label>
-            <input type="text" id="cronExpr" value="{{ settings.get('cron', '') }}" placeholder="0 */6 * * *">
-            <span class="help-text">标准 Cron 格式，留空则停止定时。</span>
-            <label>自动测速策略:</label>
-            <select id="autoMode" onchange="toggleAutoFixedServer()">
-                <option value="closest" {% if settings.get('mode') == 'closest' %}selected{% endif %}>自动寻找综合最优/最近节点</option>
-                <option value="telecom" {% if settings.get('mode') == 'telecom' %}selected{% endif %}>尝试寻找最近的 【中国电信】 节点</option>
-                <option value="unicom" {% if settings.get('mode') == 'unicom' %}selected{% endif %}>尝试寻找最近的 【中国联通】 节点</option>
-                <option value="mobile" {% if settings.get('mode') == 'mobile' %}selected{% endif %}>尝试寻找最近的 【中国移动】 节点</option>
-                <option value="fixed" {% if settings.get('mode') == 'fixed' %}selected{% endif %}>永久固定指定节点</option>
-            </select>
-            <div id="autoFixedServerDiv" style="display: {% if settings.get('mode') == 'fixed' %}block{% else %}none{% endif %};">
-                <label>请指定固定节点:</label>
-                <select id="autoServerId">
-                    <option value="">-- 正在获取附近节点列表... --</option>
-                </select>
+        <!-- ================= 即时测速 ================= -->
+        <div v-else-if="activeMenu === 'run'" class="page-scroll">
+          <el-card shadow="never">
+            <template #header><b>即时测速</b></template>
+            <el-alert v-if="settings.mode_migrated_from" class="mt12" type="warning"
+                      :closable="true" @close="clearModeNotice"
+                      title="旧的「运营商」节点策略已自动改为「仅国内节点」">
+              <div style="font-size:12px">
+                原先保存的 <b>{{ settings.mode_migrated_from }}</b> 策略依赖 Ookla 的运营商字段，
+                而该字段已不再下发（实测会静默落到境外节点）。现已自动切换为
+                <b>仅国内节点</b>；若国内节点不可用，请改用「国内直连」后端。
+              </div>
+            </el-alert>
+            <el-form label-width="110px" label-position="left" class="mt12">
+              <el-form-item label="测速后端">
+                <el-select v-model="runForm.backend" style="width:100%">
+                  <el-option v-for="b in backends" :key="b.id" :label="b.label + ' — ' + b.desc"
+                             :value="b.id"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="节点策略">
+                <el-select v-model="runForm.mode" style="width:100%">
+                  <el-option label="按地区：从预置地区里挑（推荐）" value="region"></el-option>
+                  <el-option label="自动：就近节点" value="closest"></el-option>
+                  <el-option label="自动：仅国内节点（挑延迟最低）" value="cn"></el-option>
+                  <el-option label="固定：指定节点 ID" value="fixed"></el-option>
+                  <el-option label="关键词：按名称/地区匹配" value="keyword"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="runForm.mode === 'region'" label="地区">
+                <el-select v-model="runForm.server_region" style="width:100%">
+                  <el-option v-for="r in regions" :key="r.code"
+                             :label="r.label + '（可用 ' + r.count + ' 个）'"
+                             :value="r.code" :disabled="!r.count"></el-option>
+                </el-select>
+                <span class="muted">
+                  在该地区的可用节点里挑 TCP 延迟最低的一个；括号里是当前节点池的可用数量
+                </span>
+              </el-form-item>
+              <el-form-item v-if="runForm.mode === 'fixed'" label="节点 ID">
+                <el-select v-model="runForm.server_id" filterable allow-create style="width:100%"
+                           placeholder="从下方列表选，或直接输入 ID">
+                  <el-option v-for="s in servers" :key="s.id"
+                             :label="s.display + (s.blacklisted ? ' [已拉黑]' : '')" :value="s.id"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="runForm.mode === 'keyword'" label="关键词">
+                <el-input v-model="runForm.server_keyword" placeholder="例如 联通 / Beijing / CN"></el-input>
+              </el-form-item>
+              <el-form-item label="严格模式">
+                <el-switch v-model="runForm.strict_mode" active-value="1" inactive-value="0"></el-switch>
+                <span class="muted" style="margin-left:8px">
+                  开启后节点不可用会直接失败告警，绝不偷偷换节点把成绩记成别人的
+                </span>
+              </el-form-item>
+            </el-form>
+
+            <div class="row-actions">
+              <el-button type="primary" :loading="running" @click="startTest">
+                {{ running ? '测速中…' : '立即测速' }}
+              </el-button>
+              <el-button @click="runSelftest" :loading="selftesting">配置自检</el-button>
             </div>
-            <button onclick="saveSettings()">保存定时配置</button>
-            <p id="settingsStatus" style="color: #28a745; font-weight: bold;"></p>
+
+            <el-alert v-if="selftest" class="mt12" :closable="false"
+                      :type="selftest.steps.every(s => s.ok) ? 'success' : 'warning'"
+                      :title="'配置自检：' + (selftest.steps.every(s => s.ok) ? '通过' : '有问题')">
+              <div v-for="(s, i) in selftest.steps" :key="i" style="font-size:12px">
+                {{ s.ok ? '✅' : '❌' }} {{ s.msg }}
+              </div>
+              <div v-if="selftest.pool" style="font-size:12px;margin-top:4px">
+                节点池：{{ selftest.pool.count }} 个，其中 CN {{ selftest.pool.cn }} 个；
+                地区 {{ selftest.pool.countries.join(' / ') }}
+              </div>
+            </el-alert>
+
+            <div v-if="job" class="mt16">
+              <el-alert :closable="false" :type="jobType" :title="jobTitle"></el-alert>
+              <div v-if="job.result" class="big-result mt12">
+                <div class="item"><div class="v green">{{ fmt(job.result.download) }}</div>
+                  <div class="k">下行 Mbps</div></div>
+                <div class="item"><div class="v">
+                  {{ job.result.upload === null ? '—' : fmt(job.result.upload) }}</div>
+                  <div class="k">上行 Mbps</div></div>
+                <div class="item"><div class="v orange">{{ fmt(job.result.ping) }}</div>
+                  <div class="k">延迟 ms</div></div>
+                <div class="item"><div class="v">{{ job.result.server_country || '??' }}</div>
+                  <div class="k">节点地区</div></div>
+              </div>
+              <div v-if="job.result" class="mt12" style="font-size:12px">
+                节点：{{ job.result.server_name }} - {{ job.result.server_location }}
+                <a v-if="job.result.result_url" :href="job.result.result_url" target="_blank"> · 结果页</a>
+              </div>
+              <div class="log-box mt12">
+                <div v-for="(l, i) in job.log" :key="i" class="log-line">{{ l }}</div>
+                <div v-if="!job.log || !job.log.length" class="log-line">等待输出…</div>
+              </div>
+            </div>
+          </el-card>
+
+          <el-card class="mt12" shadow="never">
+            <template #header>
+              <div class="row-actions" style="justify-content:space-between">
+                <b>Ookla 节点池
+                  <span class="muted">（{{ servers.length }} 个，CN {{ cnCount }} 个）</span></b>
+                <el-button size="small" @click="loadServers(true)" :loading="loadingServers">刷新</el-button>
+              </div>
+            </template>
+            <el-alert v-if="serverErr" :closable="false" type="error" :title="serverErr" class="mt12"></el-alert>
+            <table class="ep-table as-card-table mt12">
+              <thead><tr><th>ID</th><th>名称</th><th>地区</th><th>国家</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr v-for="s in servers" :key="s.id">
+                  <td data-label="ID" class="mono">{{ s.id }}</td>
+                  <td data-label="名称">{{ s.display.replace(/^\[[^\]]*\]\s*/, '') }}</td>
+                  <td data-label="地区">{{ s.host || '—' }}</td>
+                  <td data-label="国家">
+                    <el-tag size="small" :type="s.country === 'CN' ? 'success' : 'info'">
+                      {{ s.country || '??' }}</el-tag>
+                  </td>
+                  <td data-label="状态">
+                    <el-tag v-if="s.blacklisted" size="small" type="danger">已拉黑</el-tag>
+                    <span v-else class="muted">可用</span>
+                  </td>
+                </tr>
+                <tr v-if="!servers.length"><td colspan="5" class="ep-empty">未获取到节点列表</td></tr>
+              </tbody>
+            </table>
+          </el-card>
         </div>
 
-        <div class="card">
-            <h3 style="margin-top: 0;">💬 企业微信通知配置</h3>
-            
-            <div class="wecom-row">
-                <div class="wecom-col">
-                    <label class="wecom-label">企业 ID (CorpID)</label>
-                    <input type="text" id="wecomCorpid" class="wecom-input" value="{{ settings.get('wecom_corpid', '') }}">
-                </div>
-                <div class="wecom-col">
-                    <label class="wecom-label">应用 Secret</label>
-                    <input type="password" id="wecomSecret" class="wecom-input" value="{{ settings.get('wecom_secret', '') }}">
-                </div>
-                <div class="wecom-col">
-                    <label class="wecom-label">应用 AgentId</label>
-                    <input type="text" id="wecomAgentid" class="wecom-input" value="{{ settings.get('wecom_agentid', '') }}">
-                </div>
-            </div>
-
-            <div style="margin-bottom: 12px;">
-                <label class="wecom-label">代理地址 (可选)</label>
-                <input type="text" id="wecomProxy" class="wecom-input" value="{{ settings.get('wecom_proxy', '') }}" placeholder="例如 http://x.x.x.x:x">
-            </div>
-            
-            <div style="margin-bottom: 5px;">
-                <label class="wecom-label" style="color: #d9534f;">公网基准地址 (图文卡片必需)</label>
-                <input type="text" id="externalUrl" class="wecom-input" value="{{ settings.get('external_url', '') }}" placeholder="例如 http://你的动态域名:5000">
-            </div>
-            <span class="help-text">填入能从外网访问到该面板的完整 URL (包含端口)。不填或填局域网 IP，微信卡片将无法显示折线图。</span>
-            
-            <div class="wecom-actions">
-                <button onclick="saveSettings()">保存微信配置</button>
-                <button class="btn-test" onclick="testWechat()">测试推送</button>
-                <span id="wechatStatus" style="color: #28a745; font-weight: bold;"></span>
-            </div>
+        <!-- ================= 定时设置 ================= -->
+        <div v-else-if="activeMenu === 'schedule'" class="page-scroll">
+          <el-card shadow="never">
+            <template #header><b>定时测速</b></template>
+            <el-form label-width="130px" label-position="left">
+              <el-form-item label="启用定时">
+                <el-switch v-model="settings.cron_enabled" active-value="1" inactive-value="0"></el-switch>
+                <span class="muted" style="margin-left:8px">关闭即真正暂停任务</span>
+              </el-form-item>
+              <el-form-item label="Cron 表达式">
+                <el-input v-model="settings.cron" placeholder="0 */6 * * *"></el-input>
+                <span class="muted">5 段标准 Cron：分 时 日 月 周。当前下次执行：{{ nextRun }}</span>
+              </el-form-item>
+              <el-form-item label="节点策略">
+                <el-select v-model="settings.mode" style="width:100%">
+                  <el-option label="按地区：从预置地区里挑（推荐）" value="region"></el-option>
+                  <el-option label="自动：就近节点" value="closest"></el-option>
+                  <el-option label="自动：仅国内节点" value="cn"></el-option>
+                  <el-option label="固定：指定节点 ID" value="fixed"></el-option>
+                  <el-option label="关键词匹配" value="keyword"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="settings.mode === 'region'" label="地区">
+                <el-select v-model="settings.server_region" style="width:100%">
+                  <el-option v-for="r in regions" :key="r.code"
+                             :label="r.label + '（可用 ' + r.count + ' 个）'"
+                             :value="r.code" :disabled="!r.count"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item v-if="settings.mode === 'fixed'" label="节点 ID">
+                <el-input v-model="settings.server_id"></el-input>
+              </el-form-item>
+              <el-form-item v-if="settings.mode === 'keyword'" label="关键词">
+                <el-input v-model="settings.server_keyword"></el-input>
+              </el-form-item>
+              <el-form-item label="期望节点地区">
+                <el-input v-model="settings.expected_country" style="width:120px" placeholder="CN"></el-input>
+                <span class="muted" style="margin-left:8px">
+                  实际节点地区不符时打标并告警；留空则不检查
+                </span>
+              </el-form-item>
+              <el-form-item label="严格模式">
+                <el-switch v-model="settings.strict_mode" active-value="1" inactive-value="0"></el-switch>
+              </el-form-item>
+              <el-form-item label="失败重试次数">
+                <el-input-number v-model="settings.max_retries" :min="0" :max="5"></el-input-number>
+                <span class="muted" style="margin-left:8px">每次间隔</span>
+                <el-input-number v-model="settings.retry_delay" :min="0" :max="120"
+                                 style="margin-left:8px"></el-input-number>
+                <span class="muted">秒</span>
+              </el-form-item>
+            </el-form>
+            <el-button type="primary" @click="saveSettings(true)">保存并应用</el-button>
+          </el-card>
         </div>
-    </div>
 
-    <div class="full-width-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-            <h3>📈 历史测速趋势</h3>
-            <div>
-                <button class="btn-filter" onclick="loadChart('7')">最近 7 天</button>
-                <button class="btn-filter" onclick="loadChart('30')">最近 30 天</button>
-                <button class="btn-filter" onclick="loadChart('all')">全部数据</button>
+        <!-- ================= 后端与节点 ================= -->
+        <div v-else-if="activeMenu === 'backend'" class="page-scroll">
+          <el-card shadow="never">
+            <template #header><b>测速后端</b></template>
+            <el-radio-group v-model="settings.backend">
+              <el-radio-button v-for="b in backends" :key="b.id" :value="b.id">{{ b.label }}</el-radio-button>
+            </el-radio-group>
+            <div class="muted mt12">
+              <div v-for="b in backends" :key="b.id">
+                <b>{{ b.label }}</b>：{{ b.desc }}
+              </div>
             </div>
+          </el-card>
+
+          <el-card v-if="settings.backend === 'http'" class="mt12" shadow="never">
+            <template #header><b>国内直连目标</b></template>
+            <span class="muted">每行一条，格式 <code>名称|URL|备注</code></span>
+            <el-input type="textarea" :rows="5" v-model="settings.http_targets" class="mt12"></el-input>
+            <el-form label-width="130px" label-position="left" class="mt12">
+              <el-form-item label="上传测速地址">
+                <el-input v-model="settings.http_upload_url"
+                          placeholder="可选：任何接受 POST 的地址（自建最准）"></el-input>
+              </el-form-item>
+              <el-form-item label="并发连接数">
+                <el-input-number v-model="settings.http_connections" :min="1" :max="32"></el-input-number>
+              </el-form-item>
+              <el-form-item label="单项测试时长">
+                <el-input-number v-model="settings.http_duration" :min="3" :max="60"></el-input-number>
+                <span class="muted" style="margin-left:8px">秒</span>
+              </el-form-item>
+            </el-form>
+          </el-card>
+
+          <el-card v-if="settings.backend === 'librespeed'" class="mt12" shadow="never">
+            <template #header><b>LibreSpeed 服务器</b></template>
+            <span class="muted">每行一条，格式 <code>名称|https://host|备注</code></span>
+            <el-input type="textarea" :rows="5" v-model="settings.librespeed_servers" class="mt12"></el-input>
+          </el-card>
+
+          <el-card class="mt12" shadow="never">
+            <template #header><b>节点健康</b></template>
+            <table class="ep-table as-card-table">
+              <thead><tr>
+                <th>后端</th><th>节点</th><th>地区</th><th>成功</th><th>失败</th>
+                <th>最近下行</th><th>最近延迟</th><th>拉黑至</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="h in nodeHealth" :key="h.key">
+                  <td data-label="后端">{{ h.backend }}</td>
+                  <td data-label="节点">{{ h.name || h.server_id }}</td>
+                  <td data-label="地区">{{ h.country || '??' }}</td>
+                  <td data-label="成功">{{ h.ok_count || 0 }}</td>
+                  <td data-label="失败">{{ h.fail_count || 0 }}</td>
+                  <td data-label="最近下行">{{ h.last_down ? fmt(h.last_down) + ' Mbps' : '—' }}</td>
+                  <td data-label="最近延迟">{{ h.last_latency ? fmt(h.last_latency) + ' ms' : '—' }}</td>
+                  <td data-label="拉黑至">{{ h.blacklist_until || '—' }}</td>
+                </tr>
+                <tr v-if="!nodeHealth.length"><td colspan="8" class="ep-empty">暂无健康记录</td></tr>
+              </tbody>
+            </table>
+            <el-button class="mt12" size="small" @click="loadNodeHealth">刷新</el-button>
+          </el-card>
         </div>
-        <div id="speedChart" style="width: 100%; height: 400px; margin-top: 15px;"></div>
-    </div>
 
-    <table>
-        <thead>
-            <tr>
-                <th>时间</th>
-                <th>下载 (Mbps)</th>
-                <th>上传 (Mbps)</th>
-                <th>延迟 (ms)</th>
-                <th>节点名称</th>
-                <th>节点 ID</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in results %}
-            <tr>
-                <td>{{ row[1] }}</td>
-                <td style="color: green; font-weight: bold;">{{ row[2] }}</td>
-                <td style="color: blue; font-weight: bold;">{{ row[3] }}</td>
-                <td>{{ row[4] }}</td>
-                <td>{{ row[5] }}</td>
-                <td>{{ row[6] }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="6">暂无测速数据</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    
-    <div id="pagination" class="pagination"></div>
+        <!-- ================= 企业微信 ================= -->
+        <div v-else-if="activeMenu === 'notify'" class="page-scroll">
+          <el-card shadow="never">
+            <template #header><b>企业微信通知</b></template>
+            <el-form label-width="130px" label-position="left">
+              <el-form-item label="企业 ID"><el-input v-model="settings.wecom_corpid"></el-input></el-form-item>
+              <el-form-item label="应用 Secret">
+                <el-input v-model="notifyForm.wecom_secret" type="password" show-password
+                          :placeholder="settings.wecom_secret_set ? '已配置（留空则不修改）' : '未配置'"></el-input>
+              </el-form-item>
+              <el-form-item label="应用 AgentId"><el-input v-model="settings.wecom_agentid"></el-input></el-form-item>
+              <el-form-item label="代理地址">
+                <el-input v-model="settings.wecom_proxy" placeholder="可选，例如 http://host:port"></el-input>
+              </el-form-item>
+              <el-form-item label="公网基准地址">
+                <el-input v-model="settings.external_url" placeholder="例如 http://域名:5000"></el-input>
+                <span class="muted">填了才会带趋势图；留空则只发文字，不会发出无效图片地址</span>
+              </el-form-item>
+              <el-form-item label="成功时通知">
+                <el-switch v-model="settings.notify_on_success" active-value="1" inactive-value="0"></el-switch>
+              </el-form-item>
+              <el-form-item label="失败时通知">
+                <el-switch v-model="settings.notify_on_fail" active-value="1" inactive-value="0"></el-switch>
+              </el-form-item>
+              <el-form-item label="低速告警阈值">
+                <el-input-number v-model="settings.speed_alert_below" :min="0" :max="10000"></el-input-number>
+                <span class="muted" style="margin-left:8px">Mbps，0 = 不告警</span>
+              </el-form-item>
+            </el-form>
+            <div class="row-actions">
+              <el-button type="primary" @click="saveSettings(false)">保存</el-button>
+              <el-button @click="testWechat" :loading="testingWechat">发送测试消息</el-button>
+            </div>
+            <el-alert v-if="wechatMsg" class="mt12" :closable="false"
+                      :type="wechatOk ? 'success' : 'error'" :title="wechatMsg"></el-alert>
+          </el-card>
+        </div>
 
-    <script>
-        let myChart = null;
+        <!-- ================= 系统 ================= -->
+        <div v-else class="page-scroll">
+          <el-card shadow="never">
+            <template #header><b>访问与数据</b></template>
+            <el-form label-width="130px" label-position="left">
+              <el-form-item label="访问令牌">
+                <el-input v-model="sysForm.auth_token" type="password" show-password
+                          :placeholder="settings.auth_token_set ? '已启用（留空则不修改）' : '未启用'"></el-input>
+                <span class="muted">设置后所有页面需 ?token=xxx 或请求头 X-Auth-Token</span>
+              </el-form-item>
+              <el-form-item label="数据保留天数">
+                <el-input-number v-model="settings.retention_days" :min="0" :max="3650"></el-input-number>
+                <span class="muted" style="margin-left:8px">0 = 永久保留</span>
+              </el-form-item>
+              <el-form-item label="跳过 TLS 校验">
+                <el-switch v-model="settings.tls_insecure" active-value="1" inactive-value="0"></el-switch>
+              </el-form-item>
+            </el-form>
+            <div class="row-actions">
+              <el-button type="primary" @click="saveSettings(false)">保存</el-button>
+              <el-button @click="prune">清理过期数据</el-button>
+              <el-button @click="exportCsv">导出 CSV</el-button>
+            </div>
+          </el-card>
+        </div>
+      </el-main>
+    </el-container>
+  </el-container>
 
-        window.onload = function() {
-            fetch('/api/servers').then(res => res.json()).then(servers => {
-                const manualSelect = document.getElementById('manualServerId');
-                const autoSelect = document.getElementById('autoServerId');
-                const savedServerId = "{{ settings.get('server_id', '') }}";
-                manualSelect.innerHTML = ''; autoSelect.innerHTML = '';
-                servers.forEach(s => {
-                    manualSelect.add(new Option(s.display, s.id));
-                    const autoOption = new Option(s.display, s.id);
-                    if (s.id == savedServerId) autoOption.selected = true;
-                    autoSelect.add(autoOption);
-                });
-            });
+  <!-- 移动端抽屉 -->
+  <el-drawer v-model="drawer" direction="ltr" size="70%" class="mobile-drawer" :with-header="false">
+    <div class="drawer-logo"><el-icon><Odometer /></el-icon><span>Autospeed</span></div>
+    <el-menu :default-active="activeMenu" @select="k => { go(k); drawer = false; }">
+      <el-menu-item v-for="m in menus" :key="m.key" :index="m.key">
+        <el-icon><component :is="m.icon" /></el-icon><span>{{ m.label }}</span>
+      </el-menu-item>
+    </el-menu>
+  </el-drawer>
+</div>
 
-            const chartDom = document.getElementById('speedChart');
-            myChart = echarts.init(chartDom);
-            loadChart('7'); 
-            window.addEventListener('resize', () => myChart.resize());
-            
-            // 新增：前端纯 JS 表格分页逻辑
-            initPagination();
-        };
-
-        function initPagination() {
-            const tbody = document.querySelector('tbody');
-            const rows = Array.from(tbody.querySelectorAll('tr'));
-            
-            // 如果只有一行且是“暂无测速数据”，则不显示分页
-            if (rows.length === 0 || rows[0].innerText.includes('暂无测速数据')) {
-                document.getElementById('pagination').style.display = 'none';
-                return;
-            }
-
-            const rowsPerPage = 10;
-            const totalPages = Math.ceil(rows.length / rowsPerPage);
-            
-            window.displayPage = function(page) {
-                const start = (page - 1) * rowsPerPage;
-                const end = start + rowsPerPage;
-                
-                rows.forEach((row, index) => {
-                    row.style.display = (index >= start && index < end) ? '' : 'none';
-                });
-
-                const paginationDiv = document.getElementById('pagination');
-                paginationDiv.innerHTML = '';
-
-                if (totalPages > 1) {
-                    // 上一页按钮
-                    const prevBtn = document.createElement('button');
-                    prevBtn.className = 'page-btn';
-                    prevBtn.innerText = '上一页';
-                    prevBtn.disabled = page === 1;
-                    prevBtn.onclick = () => displayPage(page - 1);
-                    paginationDiv.appendChild(prevBtn);
-
-                    // 页码按钮
-                    for (let i = 1; i <= totalPages; i++) {
-                        const btn = document.createElement('button');
-                        btn.className = `page-btn ${i === page ? 'active' : ''}`;
-                        btn.innerText = i;
-                        btn.onclick = () => displayPage(i);
-                        paginationDiv.appendChild(btn);
-                    }
-
-                    // 下一页按钮
-                    const nextBtn = document.createElement('button');
-                    nextBtn.className = 'page-btn';
-                    nextBtn.innerText = '下一页';
-                    nextBtn.disabled = page === totalPages;
-                    nextBtn.onclick = () => displayPage(page + 1);
-                    paginationDiv.appendChild(nextBtn);
-                }
-            };
-            
-            // 默认展示第一页
-            displayPage(1);
-        }
-
-        function loadChart(timeframe) {
-            myChart.showLoading();
-            fetch(`/api/history?timeframe=${timeframe}`)
-            .then(res => res.json())
-            .then(data => {
-                myChart.hideLoading();
-                const option = {
-                    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-                    legend: { data: ['下载速率 (Mbps)', '上传速率 (Mbps)', '延迟 (ms)'] },
-                    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-                    xAxis: { type: 'category', boundaryGap: false, data: data.timestamps },
-                    yAxis: [
-                        { type: 'value', name: '速率 (Mbps)', position: 'left', axisLine: { show: true, lineStyle: { color: '#5470C6' } } },
-                        { type: 'value', name: '延迟 (ms)', position: 'right', splitLine: { show: false }, axisLine: { show: true, lineStyle: { color: '#EE6666' } } }
-                    ],
-                    dataZoom: [{ type: 'inside', start: 0, end: 100 }, { start: 0, end: 100 }],
-                    series: [
-                        { name: '下载速率 (Mbps)', type: 'line', smooth: true, itemStyle: { color: 'green' }, data: data.downloads },
-                        { name: '上传速率 (Mbps)', type: 'line', smooth: true, itemStyle: { color: 'blue' }, data: data.uploads },
-                        { name: '延迟 (ms)', type: 'line', smooth: true, yAxisIndex: 1, itemStyle: { color: 'orange' }, data: data.pings }
-                    ]
-                };
-                myChart.setOption(option);
-            });
-        }
-
-        function toggleManualFixedServer() { document.getElementById('manualFixedServerDiv').style.display = (document.getElementById('manualMode').value === 'fixed') ? 'block' : 'none'; }
-        function toggleAutoFixedServer() { document.getElementById('autoFixedServerDiv').style.display = (document.getElementById('autoMode').value === 'fixed') ? 'block' : 'none'; }
-        
-        function startTest() {
-            const btn = document.getElementById('manualBtn');
-            const status = document.getElementById('status');
-            btn.disabled = true;
-            status.innerText = "测速中，如果遇到波动会自动重试，请耐心等待...";
-            fetch('/api/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: document.getElementById('manualMode').value, server_id: document.getElementById('manualServerId').value })
-            }).then(res => res.json()).then(data => {
-                if(data.status === 'success') location.reload(); 
-                else { status.innerText = "测速异常，请检查微信通知收到的报错原因。"; btn.disabled = false; }
-            });
-        }
-
-        function collectSettings() {
-            return {
-                cron: document.getElementById('cronExpr').value,
-                mode: document.getElementById('autoMode').value,
-                server_id: document.getElementById('autoServerId').value,
-                wecom_corpid: document.getElementById('wecomCorpid').value,
-                wecom_secret: document.getElementById('wecomSecret').value,
-                wecom_agentid: document.getElementById('wecomAgentid').value,
-                wecom_proxy: document.getElementById('wecomProxy').value,
-                external_url: document.getElementById('externalUrl').value 
-            };
-        }
-
-        function saveSettings() {
-            fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectSettings()) })
-            .then(res => res.json()).then(data => {
-                if(data.status === 'success') {
-                    document.getElementById('settingsStatus').innerText = "✅ 设置已保存生效！";
-                    setTimeout(() => document.getElementById('settingsStatus').innerText = "", 3000);
-                }
-            });
-        }
-
-        function testWechat() {
-            const status = document.getElementById('wechatStatus');
-            status.innerText = "正在发送..."; status.style.color = "#007bff";
-            fetch('/api/test_wechat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectSettings()) })
-            .then(res => res.json()).then(data => {
-                if(data.status === 'success') {
-                    status.innerText = "✅ 测试消息已发送！"; status.style.color = "#28a745";
-                } else {
-                    status.innerText = "❌ 发送失败，请检查配置。"; status.style.color = "red";
-                }
-                setTimeout(() => status.innerText = "", 5000);
-            });
-        }
-    </script>
+<script src="/static/vendor/vue.global.prod.js"></script>
+<script src="/static/vendor/element-plus.min.js"></script>
+<script src="/static/vendor/element-icons.min.js"></script>
+<script src="/static/vendor/axios.min.js"></script>
+<script src="/static/vendor/echarts.min.js"></script>
+{% endraw %}
+<script>window.__BOOT__ = {{ boot | tojson }};</script>
+<script src="/static/js/app.js"></script>
 </body>
 </html>

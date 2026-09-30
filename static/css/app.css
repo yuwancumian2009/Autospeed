@@ -1,0 +1,155 @@
+/* autospeed admin 样式 —— 照 emby-plus-dev 模板规格
+   ⚠️ 不要用 `* { margin:0; padding:0 }` 全局重置 */
+
+html, body { height: 100%; margin: 0; padding: 0; }
+body {
+  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  background: #f5f7fa; font-size: 14px; color: #303133;
+}
+#app { height: 100%; }
+#app > div { height: 100%; }
+
+/* ============ 主布局 ============ */
+.app-shell { height: 100vh; }
+.app-shell.el-container { height: 100vh; }
+.app-shell > .el-container { height: 100%; min-height: 0; }
+.app-shell .el-header { flex-shrink: 0; }
+.app-shell .el-main { flex: 1; overflow: hidden; min-height: 0; padding: 16px; }
+
+.app-aside { background: #001529; display: flex; flex-direction: column; overflow: hidden; }
+.aside-logo { height: 56px; display: flex; align-items: center; justify-content: center; gap: 8px;
+  color: #fff; font-size: 17px; font-weight: 700; flex-shrink: 0; }
+.aside-menu { border-right: none; background: #001529; flex: 1; overflow-y: auto; }
+.aside-menu .el-menu-item { color: #b7c0cd; }
+.aside-menu .el-menu-item:hover { background: #002140; color: #fff; }
+.aside-menu .el-menu-item.is-active { background: #409EFF; color: #fff; }
+
+.app-header { background: #fff; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid #e4e7ed; height: 56px; padding: 0 20px; flex-shrink: 0; }
+.header-left { display: flex; align-items: center; gap: 8px; color: #409EFF; }
+.header-title { font-size: 16px; font-weight: 700; color: #303133; }
+.header-right { display: flex; gap: 8px; align-items: center; }
+.app-main { background: #f5f7fa; padding: 16px; }
+
+/* ============ 页面容器 ============ */
+.page-fill { height: 100%; display: flex; flex-direction: column; }
+.page-scroll { height: 100%; overflow-y: auto; }
+.dash-tables { flex: 1; min-height: 0; display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
+.dash-tables .el-card { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dash-tables .el-card .el-card__body { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* 统计卡 */
+.stat-card { text-align: center; }
+.stat-num { font-size: 30px; font-weight: 800; color: #409EFF; line-height: 1.2; }
+.stat-num.green { color: #67C23A; }
+.stat-num.orange { color: #E6A23C; }
+.stat-num.red { color: #F56C6C; }
+.stat-label { font-size: 12px; color: #909399; margin-top: 6px; }
+.stat-cell { margin-bottom: 12px; }
+
+/* 通用小字 */
+.muted { color: #909399; font-size: 12px; }
+.mono { font-family: "SFMono-Regular", Consolas, monospace; word-break: break-all; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.mt12 { margin-top: 12px; }
+.mt16 { margin-top: 16px; }
+
+/* 日志框 */
+.log-box { background: #0d1117; border-radius: 8px; padding: 12px; height: 220px; overflow-y: auto; }
+.log-line { font-size: 11.5px; color: #7ee787; font-family: "SFMono-Regular", Consolas, monospace;
+  padding: 2px 0; line-height: 1.5; word-break: break-all; }
+
+/* 结果大字 */
+.big-result { display: flex; gap: 24px; flex-wrap: wrap; }
+.big-result .item { min-width: 110px; }
+.big-result .v { font-size: 26px; font-weight: 800; color: #409EFF; }
+.big-result .k { font-size: 12px; color: #909399; }
+
+/* 状态点 */
+.dot-blink { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ffd04b;
+  margin-right: 5px; animation: blink 1s infinite; vertical-align: middle; }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #c0c4cc; border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ============ 原生表格（照模板 .ep-table） ============ */
+.ep-table { width: 100%; border-collapse: collapse; font-size: 13px; color: #303133; }
+.ep-table thead th { background: #f5f7fa; font-weight: 700; padding: 8px 10px; text-align: left;
+  border-bottom: 1px solid #ebeef5; white-space: nowrap; }
+.ep-table tbody td { padding: 8px 10px; border-bottom: 1px solid #ebeef5; line-height: 1.4; }
+.ep-table tbody tr:hover td { background: #f5f7fa; }
+.ep-table .ep-empty { text-align: center; color: #909399; padding: 24px; font-style: italic; }
+
+/* 分页 */
+.history-pagination { display: flex; justify-content: center; padding: 12px 0 4px; }
+.dash-tables .el-card .history-pagination { position: sticky; bottom: 0; background: #fff; z-index: 2;
+  border-top: 1px solid #ebeef5; margin-top: 4px; }
+
+/* ============ 移动端适配 ============ */
+.mobile-menu-btn { display: none !important; }
+.mobile-drawer .el-drawer__body { padding: 0; }
+.mobile-drawer .el-menu { border-right: none; }
+.mobile-drawer .drawer-logo { display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 20px 0; color: #fff; font-size: 17px; font-weight: 700; background: #001529; }
+
+@media (max-width: 768px) {
+  .app-aside { display: none; }
+  .mobile-menu-btn { display: inline-flex !important; color: #303133;
+    border: 1px solid #dcdfe6; border-radius: 6px; margin-right: 4px; }
+  .app-header { padding: 0 10px; }
+  .header-title { font-size: 14px; }
+  .header-right { gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+  .header-right .el-tag { font-size: 10px; padding: 0 4px; height: 20px; line-height: 20px; }
+  .app-main { padding: 8px; }
+  .page-fill { overflow-y: auto; }
+  .dash-tables { flex: none; flex-direction: column; }
+  .dash-tables .el-card { flex: none; }
+  .dash-tables .el-card .el-card__body { overflow: visible; }
+
+  /* 统计卡 2×2 */
+  .stat-cell { min-width: calc(50% - 12px) !important; }
+  .stat-num { font-size: 22px; }
+  .stat-label { font-size: 11px; }
+
+  /* 宽表格卡片化（两列网格，右侧不空白）
+     注意：必须把 <table> 改成 display:block。
+     若保持 display:table，表格会用 min-content 撑破 width:100%，
+     其内部 grid 的 1fr 又因"可用宽度不确定"退化成按 max-content 分配，
+     结果是两列不等宽、整表横向溢出（实测 427px 塞进 332px 内容框）。 */
+  .as-card-table { display: block !important; min-width: 0 !important;
+    width: 100% !important; table-layout: fixed; }
+  .as-card-table thead { display: none; }
+  .as-card-table tbody { display: block; width: 100%; }
+  .as-card-table tbody tr {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 14px; padding: 10px 12px;
+    border: 1px solid #ebeef5; border-radius: 6px; margin-bottom: 8px; background: #fff;
+  }
+  /* minmax(0,1fr) 而非 1fr：1fr 的隐含 min 是 min-content，
+     某一列遇到长内容会把两列挤成不等宽（实测 87.7/204.3）。 */
+  .as-card-table tbody td { display: block; padding: 2px 0; border: none;
+    white-space: normal; overflow-wrap: anywhere; line-height: 1.5; text-align: left !important; }
+  .as-card-table tbody td::before {
+    content: attr(data-label); color: #909399; font-size: 11px; display: block; margin-bottom: 1px; }
+  .as-card-table tbody td.full { grid-column: 1 / -1; }
+  /* 告警列的 el-tag 默认不换行，长文案会顶出卡片（实测 right=531 vs 视口 390） */
+  .as-card-table .el-tag { max-width: 100%; height: auto; min-height: 20px;
+    white-space: normal; line-height: 1.4; padding: 2px 6px; }
+  .as-card-table .el-tag .el-tag__content { white-space: normal;
+    overflow-wrap: anywhere; display: block; }
+
+  .big-result { gap: 12px; }
+  .big-result .item { min-width: 84px; }
+  .big-result .v { font-size: 20px; }
+  .log-box { height: 180px; }
+
+  .el-card__header { padding: 10px 12px; }
+  .el-card__body { padding: 12px; }
+  .el-dialog { --el-dialog-width: 94vw !important; max-width: 94vw !important; margin: 0 auto; }
+  .history-pagination .el-pagination { flex-wrap: wrap; gap: 4px; }
+  .history-pagination .el-pagination .el-pager li,
+  .history-pagination .el-pagination button { min-width: 24px; height: 24px; font-size: 12px; }
+}
