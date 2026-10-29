@@ -294,6 +294,13 @@
                                  style="margin-left:8px"></el-input-number>
                 <span class="muted">秒</span>
               </el-form-item>
+              <el-form-item label="采样次数">
+                <el-input-number v-model="settings.samples" :min="1" :max="3"></el-input-number>
+                <span class="muted" style="margin-left:8px">
+                  连测多次取下行中位数，压掉单次抖动；结果明显不合理（上行反超下行、
+                  远低于近期中位数）会自动重采
+                </span>
+              </el-form-item>
             </el-form>
             <el-button type="primary" @click="saveSettings(true)">保存并应用</el-button>
           </el-card>

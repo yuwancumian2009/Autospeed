@@ -27,6 +27,7 @@ import json
 import os
 import secrets
 import sqlite3
+import statistics
 import threading
 import time
 import uuid
@@ -65,7 +66,10 @@ DEFAULT_SETTINGS = {
     "cron": "0 */6 * * *",
     "cron_enabled": "1",
     # 后端与节点
-    "backend": "ookla",
+    # 默认走国内直连：Ookla CLI 的节点池按出口 IP 地理位置下发，国内 IP 常被
+    # 误判成境外（实测河北移动被判成蒙古），只能测到境外节点，下行在 4~94
+    # Mbps 之间乱跳；国内镜像直连同一条线稳定在 92.5 Mbps。
+    "backend": "http",
     "mode": "closest",            # closest | cn | region | fixed | keyword
     "mode_migrated_from": "",     # 旧策略迁移标记，前端提示后可清除
     "server_id": "",
@@ -75,6 +79,8 @@ DEFAULT_SETTINGS = {
     "strict_mode": "1",
     "max_retries": "1",
     "retry_delay": "10",
+    # 采样：>1 时连测多次取下行中位数，压掉单次抖动
+    "samples": "1",
     # 国内直连后端
     "http_targets": "\n".join(
         f"{t['name']}|{t['url']}|{t.get('note','')}" for t in DEFAULT_HTTP_TARGETS),
@@ -507,6 +513,39 @@ def select_target(backend, cfg):
                       "label": f"未知策略「{mode}」，已回退就近节点"})
 
 
+def recent_median(backend_name, days=14):
+    """近 N 天同后端下行中位数；样本不足返回 None。"""
+    try:
+        conn = db()
+        thr = (datetime.now() - timedelta(days=days)).strftime(TS_FMT)
+        vals = [r[0] for r in conn.execute(
+            "SELECT download FROM results WHERE backend = ? AND timestamp >= ? "
+            "AND download > 0 ORDER BY id DESC LIMIT 200", (backend_name, thr))]
+        conn.close()
+    except sqlite3.Error:
+        return None
+    if len(vals) < 5:
+        return None
+    return statistics.median(vals)
+
+
+def result_suspect(res, baseline):
+    """判断一次测量是否可信。返回原因文案；空串表示正常。
+
+    上行反超是家庭宽带上物理不可能的现象（下行远大于上行），出现即可断定
+    是节点拥塞或线路被别的东西占了；与近 14 天中位数差太多同理。
+    """
+    d = float(res.get("download") or 0)
+    u = float(res.get("upload") or 0)
+    if d <= 0:
+        return "下行无数据"
+    if u > 0 and u > d * 1.5:
+        return f"上行 {u:g} 是下行 {d:g} 的 {u / d:.1f} 倍，物理上不合理"
+    if baseline and baseline > 0 and d < baseline * 0.4:
+        return f"仅为近 14 天中位数 {baseline:g} 的 {d / baseline * 100:.0f}%"
+    return ""
+
+
 def evaluate_warning(res, cfg, intent):
     """地区守卫 + 漂移检测。返回告警文案（空串表示正常）。"""
     warns = []
@@ -516,6 +555,15 @@ def evaluate_warning(res, cfg, intent):
         warns.append(f"节点地区不符：期望 {exp}，实际 {cc}")
     if exp and not cc:
         warns.append(f"节点地区未知（期望 {exp}）")
+    # 物理上不合理：家庭宽带上行远小于下行，反超基本就是测错了
+    _d = float(res.get("download") or 0)
+    _u = float(res.get("upload") or 0)
+    if _d > 0 and _u > _d * 1.5:
+        warns.append(f"上行 {_u:g} Mbps 高于下行 {_d:g} Mbps，结果存疑"
+                     f"（节点拥塞、线路被占用或选错节点）")
+    # 境外节点：国际链路吞吐波动大，明确提示，别把波动当成线路变差
+    if res.get("backend") == "ookla" and cc and cc != "CN":
+        warns.append(f"测速节点在境外（{cc}），国际链路吞吐波动大")
     if intent.get("mode") == "fixed" and intent.get("server_id") \
             and str(res.get("server_id")) != str(intent["server_id"]):
         warns.append(f"实际节点与指定节点不一致（{intent['server_id']} → {res.get('server_id')}）")
@@ -683,14 +731,20 @@ def run_speedtest(trigger="manual", progress=None):
 
     p(f"后端={backend.label} 目标={target or '自动'} 意图={intent['label']}")
 
+    # 多次采样取中位数：单次结果很容易被瞬时拥塞 / 线路被占用带偏
+    need = max(1, int(cfg.get("samples") or 1))
+    baseline = recent_median(backend.name)
+    if baseline:
+        p(f"近 14 天中位数 {baseline:.1f} Mbps")
+
     last_err = ""
     res = None
+    collected = []
     for i in range(attempts):
         t0 = time.perf_counter()
         try:
-            res = backend.run(target)
-            res["duration"] = round(time.perf_counter() - t0, 2)
-            break
+            r = backend.run(target)
+            r["duration"] = round(time.perf_counter() - t0, 2)
         except BackendError as e:
             last_err = str(e)
             p(f"第 {i+1}/{attempts} 次失败：{last_err}")
@@ -701,6 +755,35 @@ def run_speedtest(trigger="manual", progress=None):
                           last_err)
             if i < attempts - 1 and delay:
                 time.sleep(delay)
+            continue
+
+        collected.append(r)
+        p(f"第 {i+1}/{attempts} 次：下行 {r.get('download')} / 上行 {r.get('upload')} Mbps")
+
+        if len(collected) < need:
+            continue                       # 采样数还不够
+
+        # 取下行中位数那一次，保证上下行与 ping 同源
+        ranked = sorted(collected, key=lambda x: float(x.get("download") or 0))
+        candidate = ranked[len(ranked) // 2]
+        why = result_suspect(candidate, baseline)
+        if why and i < attempts - 1:
+            # 结论不可信就重采，别把噪声当数据存进库
+            p(f"结果可疑（{why}），重新采样")
+            collected = []
+            if delay:
+                time.sleep(delay)
+            continue
+        res = candidate
+        if why:
+            res.setdefault("extra", {})["suspect"] = why
+        break
+
+    if res is None and collected:
+        ranked = sorted(collected, key=lambda x: float(x.get("download") or 0))
+        res = ranked[len(ranked) // 2]
+        res.setdefault("extra", {})["suspect"] = (result_suspect(res, baseline)
+                                                  or "多次采样均未通过校验")
 
     if res is None:
         msg = (f"❌ 测速失败（已重试 {attempts - 1} 次）\n\n后端：{backend.label}\n"
@@ -714,6 +797,9 @@ def run_speedtest(trigger="manual", progress=None):
     res.setdefault("timestamp", datetime.now().strftime(TS_FMT))
     res["timestamp"] = res.get("timestamp") or datetime.now().strftime(TS_FMT)
     warn = evaluate_warning(res, cfg, intent)
+    _sus = (res.get("extra") or {}).get("suspect")
+    if _sus:
+        warn = "；".join(x for x in (warn, f"结果存疑：{_sus}") if x)
     mark_ok(res)
     save_result(res, trigger, warn)
 
