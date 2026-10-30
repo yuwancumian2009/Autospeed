@@ -365,35 +365,58 @@ class HttpBackend:
             raise BackendError("上传测量失败：" + (errors[0] if errors else "无数据返回"))
         return round(counter[0] * 8 / elapsed / 1e6, 2)
 
-    def _upload_via_ookla(self, timeout: float = 150.0):
-        """用 Ookla CLI 补测上行，返回 (Mbps, 节点名, 地区, 国家码) 或 None。
+    def _upload_via_ookla(self, attempts: int = 3, timeout: float = 150.0):
+        """用 Ookla CLI 补测上行，返回 (result, err)。
+
+        result = (Mbps, 节点名, 地区, 国家码) 或 None；err 是最后一次失败原因，
+        用于前端说明"为什么没有上行"，别让 None 变成一个没有解释的破折号。
 
         国内镜像站只提供下载、不接受上传；国外 HTTP 端点在本网络下实测仅
         1–3 Mbps（单流 1.1、16 流 3.6），严重低报。Ookla 走多流 + 运营商
         优质互联，能得到接近真实宽带上行的数值，故作为上行兜底。
+
+        但这条链路的节点会随机报 `Network unreachable` / `Cannot open socket`
+        （实测连跑两次就失败一次），单次调用失败率不低 —— 必须重试。
         """
         cmd = [self.ookla_binary, "--accept-license", "--accept-gdpr", "-f", "json"]
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        except FileNotFoundError:
-            return None
-        except subprocess.TimeoutExpired:
-            return None
-        except Exception:  # noqa: BLE001
-            return None
-        if r.returncode != 0:
-            return None
-        try:
-            data = json.loads(r.stdout)
-        except ValueError:
-            return None
-        bw = (data.get("upload") or {}).get("bandwidth")
-        if not bw:
-            return None
-        srv = data.get("server") or {}
-        return (round(float(bw) * 8 / 1e6, 2),
-                srv.get("name") or "", srv.get("location") or "",
-                (srv.get("country") or "").upper())
+        err = ""
+        for _ in range(max(1, int(attempts))):
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            except FileNotFoundError:
+                return None, "容器内未找到 speedtest 命令"
+            except subprocess.TimeoutExpired:
+                err = f"Ookla 超时（超过 {int(timeout)} 秒）"
+                continue
+            except Exception as e:  # noqa: BLE001
+                err = f"Ookla 调用异常：{e}"
+                continue
+            if r.returncode != 0:
+                msg = ""
+                for line in (r.stderr or "").splitlines():
+                    try:
+                        j = json.loads(line)
+                    except ValueError:
+                        continue
+                    if j.get("level") == "error" and j.get("message"):
+                        msg = j["message"]
+                        break
+                err = msg or f"Ookla 退出码 {r.returncode}"
+                continue
+            try:
+                data = json.loads(r.stdout)
+            except ValueError:
+                err = "Ookla 输出无法解析"
+                continue
+            bw = (data.get("upload") or {}).get("bandwidth")
+            if not bw:
+                err = "Ookla 结果中没有上行字段"
+                continue
+            srv = data.get("server") or {}
+            return (round(float(bw) * 8 / 1e6, 2),
+                    srv.get("name") or "", srv.get("location") or "",
+                    (srv.get("country") or "").upper()), ""
+        return None, err or "Ookla 多次尝试均失败"
 
     # -- 目标选择 --------------------------------------------------------
     def probe_target(self, t: dict, timeout: float = 4.0):
@@ -492,12 +515,14 @@ class HttpBackend:
         # 上行兜底：镜像站不接受上传 → 改用 Ookla CLI 补测（见 _upload_via_ookla）
         upload_source = "http" if up is not None else ""
         ookla_up_srv = None
+        upload_error = ""
         if up is None and self.upload_via_ookla:
-            got_up = self._upload_via_ookla()
+            got_up, upload_error = self._upload_via_ookla()
             if got_up:
                 up, o_name, o_loc, o_country = got_up
                 upload_source = "ookla"
                 ookla_up_srv = {"name": o_name, "location": o_loc, "country": o_country}
+                upload_error = ""
         return {
             "backend": self.name,
             "download": down,
@@ -516,6 +541,7 @@ class HttpBackend:
                       "connections": self.connections,
                       "upload_configured": bool(self.upload_url),
                       "upload_source": upload_source,
+                      "upload_error": upload_error,
                       "upload_server": ookla_up_srv},
         }
 
