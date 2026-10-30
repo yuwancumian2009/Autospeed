@@ -22,6 +22,8 @@ autospeed — 家庭宽带自动测速面板（重写版）
 from __future__ import annotations
 
 import csv
+import hashlib
+import hmac
 import io
 import json
 import os
@@ -665,9 +667,18 @@ def send_wecom(title, body, with_chart=False, timeout=15):
     token = d.get("access_token")
 
     article = {"title": title, "description": body, "url": external_url}
-    # 只有外部地址可访问时才带图片，避免把无效地址发给微信
-    if with_chart and external_url and os.path.exists(CHART_FILE):
-        article["picurl"] = f"{external_url.rstrip('/')}/chart.png?t={int(time.time())}"
+    # 配图是腾讯服务器异步来抓的，这里只负责把带 token 的地址塞进 picurl；
+    # 抓没抓到企业微信不会报错，所以把「有没有附图」写进 detail，别让它静默失败。
+    chart_note = ""
+    if with_chart:
+        if not os.path.exists(CHART_FILE):
+            chart_note = "图表文件不存在，未附图"
+        elif not external_url:
+            chart_note = "未配置外部访问地址，未附图"
+        else:
+            article["picurl"] = (f"{external_url.rstrip('/')}/chart.png"
+                                 f"?k={chart_token()}&t={int(time.time())}")
+            chart_note = "已附图"
 
     payload = {"touser": "@all", "msgtype": "news", "agentid": int(agentid),
                "news": {"articles": [article]}, "safe": 0}
@@ -682,7 +693,7 @@ def send_wecom(title, body, with_chart=False, timeout=15):
     except ValueError:
         return False, f"发送返回非 JSON（HTTP {res.status_code}）：{res.text[:120]}"
     if rd.get("errcode") == 0:
-        return True, "发送成功"
+        return True, (f"发送成功（{chart_note}）" if chart_note else "发送成功")
     return False, f"发送失败：errcode={rd.get('errcode')} {rd.get('errmsg')}"
 
 
@@ -936,11 +947,26 @@ def next_run_text():
 # ==========================================================================
 
 # 免登录的路径：健康检查、登录页、静态资源
-OPEN_PATHS = {"/healthz", "/login", "/api/login", "/logout", "/favicon.ico"}
+OPEN_PATHS = {"/healthz", "/login", "/api/login", "/logout", "/favicon.ico",
+              # 企业微信取图不带会话，鉴权在 serve_chart 里用 token 单独校验
+              "/chart.png"}
 
 
 def panel_password():
     return (all_settings().get("panel_password") or "").strip()
+
+
+def chart_token():
+    """给 /chart.png 签一个稳定 token。
+
+    企业微信图文卡片的配图是腾讯服务器主动来抓 URL，请求里没有浏览器会话，
+    所以 /chart.png 必须能在未登录情况下访问；但它又不能对全网裸奔，
+    这里用 session_secret 派生一个不可猜的 token，只有拿到设置的人才拼得出来。
+    """
+    secret = get_setting("session_secret") or ""
+    if not secret:
+        secret = "autospeed-chart-fallback"
+    return hmac.new(secret.encode(), b"chart-png", hashlib.sha256).hexdigest()[:32]
 
 
 def is_authed():
@@ -1261,8 +1287,13 @@ def api_export():
 
 @app.route("/chart.png")
 def serve_chart():
+    k = (request.args.get("k") or "").strip()
+    if not is_authed() and not hmac.compare_digest(k, chart_token()):
+        return "forbidden", 403
     if os.path.exists(CHART_FILE):
-        return send_file(CHART_FILE, mimetype="image/png")
+        resp = send_file(CHART_FILE, mimetype="image/png")
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
     return "No chart yet", 404
 
 
