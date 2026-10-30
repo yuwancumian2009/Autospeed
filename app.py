@@ -574,10 +574,12 @@ def evaluate_warning(res, cfg, intent):
         warns.append(f"下行 {res.get('download')} Mbps 低于阈值 {thr:g} Mbps")
     # 上行缺失必须显式暴露：静默记 None 会让人以为测过了
     if res.get("upload") is None:
+        _uerr = (res.get("extra") or {}).get("upload_error") or ""
+        _suffix = f"：{_uerr}" if _uerr else ""
         if res.get("backend") == "http":
-            warns.append("上行未测（国内镜像不接受上传，Ookla 兜底亦失败）")
+            warns.append(f"上行未测（镜像站不支持上传，Ookla 兜底失败{_suffix}）")
         else:
-            warns.append("上行未测（后端未返回上行数据）")
+            warns.append(f"上行未测（后端未返回上行数据{_suffix}）")
     return "；".join(warns)
 
 
