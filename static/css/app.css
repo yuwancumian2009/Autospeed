@@ -116,6 +116,11 @@ body {
   .as-card-table th:nth-child(5), .as-card-table td:nth-child(5) { width: auto; }
   .as-card-table th:nth-child(6), .as-card-table td:nth-child(6) { width: 72px; white-space: nowrap; }
   .as-card-table th:nth-child(7), .as-card-table td:nth-child(7) { width: 34%; overflow-wrap: anywhere; }
+  /* 告警是失败原因，必须能读全：el-tag 自带 white-space:nowrap 会溢出到列外，
+     这里放开换行让长文案在单元格内折行 */
+  .as-card-table td:nth-child(7) .el-tag { white-space: normal; height: auto;
+    max-width: 100%; line-height: 1.45; padding: 2px 8px; align-items: flex-start; }
+  .as-card-table td:nth-child(7) .el-tag__content { display: inline; text-align: left; }
 }
 
 /* ============ 移动端适配 ============ */
