@@ -149,11 +149,14 @@ class OoklaBackend:
         for s in data.get("servers", []):
             out.append({
                 "id": str(s.get("id")),
-                "name": s.get("name") or "未知节点",
+                # name/location/country/host 不保证是字符串：香港 ISP「1010」的 name
+                # 就是一个 JSON 数字（不带引号的 1010），直接拼字符串会 TypeError，
+                # 把整个 /api/servers 打成 500（2026-11 实测踩过）。一律 str() 兜住。
+                "name": str(s.get("name") or "").strip() or "未知节点",
                 # 原版把 name 和 sponsor 拼一起，而 CLI 根本没有 sponsor 字段
-                "location": s.get("location") or "未知地区",
-                "country": (s.get("country") or "").upper(),
-                "host": s.get("host") or "",
+                "location": str(s.get("location") or "").strip() or "未知地区",
+                "country": str(s.get("country") or "").upper(),
+                "host": str(s.get("host") or ""),
                 "port": int(s.get("port") or 8080),
                 "latency": s.get("latency"),
             })
