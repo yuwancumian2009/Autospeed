@@ -47,6 +47,34 @@ _SSL_INSECURE = ssl.create_default_context()
 _SSL_INSECURE.check_hostname = False
 _SSL_INSECURE.verify_mode = ssl.CERT_NONE
 
+# Ookla CLI 全局串行锁。
+# 两个 CLI 同时跑不是会崩（实测并发 6/6 都能跑完），而是会互相抢带宽 ——
+# 实测并发时下行从 97 Mbps 掉到 27~40，测出来的数字完全是错的。
+# 面板一打开就会拉 /api/servers（内部执行 speedtest -L），正好可能撞上定时测速，
+# 所以所有 Ookla 调用都必须走这把锁。用 RLock 防止同线程嵌套时自锁。
+_OOKLA_LOCK = threading.RLock()
+
+OOKLA_CFG = "~/.config/ookla/speedtest-cli.json"
+
+
+def repair_ookla_config():
+    """修 Ookla 的 ConfigurationError：删掉配置文件，让 --accept-license 重新生成。
+
+    CLI 偶发报 "Configuration - Could not retrieve or read configuration"，
+    但配置文件本身是好的（只有 LicenseAccepted 一个字段），属于读取时的瞬时故障。
+    这种情况反复重试没用，删掉重写一遍才治本；文件里没有别的状态，删了无副作用。
+    """
+    try:
+        os.remove(os.path.expanduser(OOKLA_CFG))
+    except OSError:
+        pass
+
+
+def _ookla_backoff(i: int, tries: int):
+    """失败后等几秒再试。瞬时抖动往往几十秒就过去，连着猛打只是白费重试次数。"""
+    if i + 1 < tries:
+        time.sleep(min(5 * (i + 1), 20))
+
 
 class BackendError(Exception):
     """测速失败，message 面向用户可读。"""
@@ -134,7 +162,8 @@ class OoklaBackend:
         """返回 [{id, name, location, country, host, port, latency}]。"""
         cmd = self._base_cmd() + ["-L", "-f", "json"]
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            with _OOKLA_LOCK:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
             raise BackendError(f"获取节点列表超时（>{timeout:.0f}s）")
         except FileNotFoundError:
@@ -167,7 +196,8 @@ class OoklaBackend:
         if server_id:
             cmd += ["-s", str(server_id)]
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            with _OOKLA_LOCK:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
             raise BackendError(f"测速超时（>{timeout:.0f}s）")
         if r.returncode != 0:
@@ -368,7 +398,7 @@ class HttpBackend:
             raise BackendError("上传测量失败：" + (errors[0] if errors else "无数据返回"))
         return round(counter[0] * 8 / elapsed / 1e6, 2)
 
-    def _upload_via_ookla(self, attempts: int = 3, timeout: float = 150.0):
+    def _upload_via_ookla(self, attempts: int = 4, timeout: float = 150.0):
         """用 Ookla CLI 补测上行，返回 (result, err)。
 
         result = (Mbps, 节点名, 地区, 国家码) 或 None；err 是最后一次失败原因，
@@ -379,20 +409,26 @@ class HttpBackend:
         优质互联，能得到接近真实宽带上行的数值，故作为上行兜底。
 
         但这条链路的节点会随机报 `Network unreachable` / `Cannot open socket`
-        （实测连跑两次就失败一次），单次调用失败率不低 —— 必须重试。
+        （实测连跑两次就失败一次），还会偶发 `ConfigurationError`，单次调用
+        失败率不低。所以这里做三层兜底：串行锁 + 失败退避重试 + 配置自愈。
         """
         cmd = [self.ookla_binary, "--accept-license", "--accept-gdpr", "-f", "json"]
         err = ""
-        for _ in range(max(1, int(attempts))):
+        tries = max(1, int(attempts))
+        for i in range(tries):
             try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+                # 串行化：避免和 /api/servers 的 -L、或另一轮采样抢带宽
+                with _OOKLA_LOCK:
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             except FileNotFoundError:
                 return None, "容器内未找到 speedtest 命令"
             except subprocess.TimeoutExpired:
                 err = f"Ookla 超时（超过 {int(timeout)} 秒）"
+                _ookla_backoff(i, tries)
                 continue
             except Exception as e:  # noqa: BLE001
                 err = f"Ookla 调用异常：{e}"
+                _ookla_backoff(i, tries)
                 continue
             if r.returncode != 0:
                 msg = ""
@@ -405,6 +441,10 @@ class HttpBackend:
                         msg = j["message"]
                         break
                 err = msg or f"Ookla 退出码 {r.returncode}"
+                # 配置文件读取故障：删掉让它重建，这比重试有效得多
+                if "configuration" in err.lower():
+                    repair_ookla_config()
+                _ookla_backoff(i, tries)
                 continue
             try:
                 data = json.loads(r.stdout)
