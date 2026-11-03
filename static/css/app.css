@@ -32,7 +32,24 @@ body {
 .app-main { background: #f5f7fa; padding: 16px; }
 
 /* ============ 页面容器 ============ */
-.page-fill { height: 100%; display: flex; flex-direction: column; }
+/* 仪表盘：三块卡片整体可滚动，趋势图高度跟着窗口伸缩。
+   原来 .page-fill 是 height:100% 而父级 .el-main 是 overflow:hidden，
+   三块卡片总高必然超出容器 —— 超出的部分被静默裁掉且无处可滚，
+   表现就是趋势图下半截看不见、分页条整个消失（180 多条只能看到第一页）。 */
+.page-fill { height: 100%; min-height: 0; display: flex; flex-direction: column;
+  overflow-y: auto; }
+.page-fill > * { flex: none; }
+
+/* 趋势图高度用 clamp 直接按窗口算：
+   不再靠 flex 分配（容器 overflow:auto 时没有剩余空间可分，图会被压到 min-height）。
+   矮窗口兜 220px，高窗口封 520px，中间线性跟随。 */
+#trend-chart { width: 100%; height: clamp(220px, calc(100vh - 560px), 520px); }
+
+.dash-trend { margin-top: 12px; }
+
+/* 记录卡片：按内容撑开，整页滚到底就能看到分页 */
+.dash-records { flex: none; margin-top: 12px; }
+
 .page-scroll { height: 100%; overflow-y: auto; }
 .dash-tables { flex: 1; min-height: 0; display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
 .dash-tables .el-card { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -83,10 +100,23 @@ body {
 .ep-table tbody tr:hover td { background: #f5f7fa; }
 .ep-table .ep-empty { text-align: center; color: #909399; padding: 24px; font-style: italic; }
 
-/* 分页 */
-.history-pagination { display: flex; justify-content: center; padding: 12px 0 4px; }
-.dash-tables .el-card .history-pagination { position: sticky; bottom: 0; background: #fff; z-index: 2;
-  border-top: 1px solid #ebeef5; margin-top: 4px; }
+/* 分页：吸底，滚动记录时始终可见 */
+.history-pagination { display: flex; justify-content: center; padding: 10px 0 2px;
+  position: sticky; bottom: 0; background: #fff; z-index: 2;
+  border-top: 1px solid #ebeef5; }
+
+/* 表格列宽：默认 auto 时，短内容列被压成一条缝（时间列 89px 挤成 5 行），
+   而长告警列独占 773px。桌面端固定列宽，手机端走下面的卡片化布局不受影响。 */
+@media (min-width: 769px) {
+  .as-card-table { table-layout: fixed; }
+  .as-card-table th:nth-child(1), .as-card-table td:nth-child(1) { width: 150px; white-space: nowrap; }
+  .as-card-table th:nth-child(2), .as-card-table td:nth-child(2) { width: 106px; white-space: nowrap; }
+  .as-card-table th:nth-child(3), .as-card-table td:nth-child(3) { width: 106px; white-space: nowrap; }
+  .as-card-table th:nth-child(4), .as-card-table td:nth-child(4) { width: 86px; white-space: nowrap; }
+  .as-card-table th:nth-child(5), .as-card-table td:nth-child(5) { width: auto; }
+  .as-card-table th:nth-child(6), .as-card-table td:nth-child(6) { width: 72px; white-space: nowrap; }
+  .as-card-table th:nth-child(7), .as-card-table td:nth-child(7) { width: 34%; overflow-wrap: anywhere; }
+}
 
 /* ============ 移动端适配 ============ */
 .mobile-menu-btn { display: none !important; }

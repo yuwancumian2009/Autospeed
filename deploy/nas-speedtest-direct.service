@@ -1,0 +1,15 @@
+[Unit]
+Description=Speedtest container direct routing (bypass clash transparent proxy)
+Documentation=file:/usr/local/bin/nas-speedtest-direct.sh
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nas-speedtest-direct.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

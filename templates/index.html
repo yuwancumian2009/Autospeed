@@ -60,7 +60,7 @@
             </el-col>
           </el-row>
 
-          <el-card class="mt12" shadow="never">
+          <el-card class="mt12 dash-trend" shadow="never">
             <template #header>
               <div class="row-actions" style="justify-content:space-between">
                 <b>趋势图</b>
@@ -72,10 +72,10 @@
                 </el-radio-group>
               </div>
             </template>
-            <div id="trend-chart" style="height:300px"></div>
+            <div id="trend-chart"></div>
           </el-card>
 
-          <el-card class="mt12" shadow="never">
+          <el-card class="mt12 dash-records" shadow="never">
             <template #header>
               <div class="row-actions" style="justify-content:space-between">
                 <b>最近记录 <span class="muted">（共 {{ total }} 条）</span></b>
