@@ -347,7 +347,7 @@ COUNTRY_ALIASES = {
 
 def norm_country(v):
     """把各种写法的国家名归一到 ISO 风格短码；未知的原样返回（大写）。"""
-    key = (v or "").strip().upper()
+    key = str(v or "").strip().upper()
     return COUNTRY_ALIASES.get(key, key)
 
 
@@ -355,7 +355,9 @@ def is_cn_server(s):
     """国内节点判定：国家字段归一后为 CN，或名称/地名命中国内关键词。"""
     if norm_country(s.get("country")) == "CN":
         return True
-    blob = ((s.get("name") or "") + " " + (s.get("location") or "")).lower()
+    # 用 f-string 而不是 + 拼接：Ookla 的 name 可能是数字（香港「1010」就是），
+    # int + str 会抛 TypeError 并让 /api/servers 直接 500。
+    blob = f"{s.get('name') or ''} {s.get('location') or ''}".lower()
     return any(h in blob for h in CN_HINTS)
 
 
