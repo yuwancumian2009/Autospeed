@@ -781,6 +781,12 @@ def run_speedtest(trigger="manual", progress=None):
         # 取下行中位数那一次，保证上下行与 ping 同源
         ranked = sorted(collected, key=lambda x: float(x.get("download") or 0))
         candidate = ranked[len(ranked) // 2]
+        # 同一批采样里有的拿到了上行、有的没拿到，优先挑带上行的那条：
+        # 否则中位数正好落到 Ookla 偶发失败的那次，白白丢掉上行
+        if candidate.get("upload") is None:
+            withup = [x for x in ranked if x.get("upload") is not None]
+            if withup:
+                candidate = withup[len(withup) // 2]
         why = result_suspect(candidate, baseline)
         if why and i < attempts - 1:
             # 结论不可信就重采，别把噪声当数据存进库
@@ -807,6 +813,25 @@ def run_speedtest(trigger="manual", progress=None):
             ok, detail = send_wecom("网络测速失败", msg, with_chart=False)
             p(f"失败告警发送：{detail}")
         return None, last_err
+
+    # 上行单独补测：国内镜像站不提供上传，上行完全靠 Ookla 兜底，而它偶发失败。
+    # 采样都跑完后再单独补一次 —— 此时瞬时抖动往往已经过去，命中率高得多。
+    if (res.get("upload") is None and hasattr(backend, "_upload_via_ookla")
+            and getattr(backend, "upload_via_ookla", False)):
+        p("上行缺失，等 15 秒后单独补测…")
+        time.sleep(15)
+        got, uerr = backend._upload_via_ookla(attempts=3)
+        if got:
+            res["upload"] = got[0]
+            extra = res.setdefault("extra", {})
+            extra["upload_source"] = "ookla"
+            extra["upload_server"] = {"name": got[1], "location": got[2],
+                                      "country": got[3]}
+            extra["upload_error"] = ""
+            p(f"补测到上行 {got[0]} Mbps（{got[1]} / {got[2]}）")
+        else:
+            res.setdefault("extra", {})["upload_error"] = uerr
+            p(f"上行补测仍失败：{uerr}")
 
     # 统一时间戳：任务返回值、DB 记录、节点健康三处保持一致
     res.setdefault("timestamp", datetime.now().strftime(TS_FMT))
