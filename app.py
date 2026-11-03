@@ -1069,6 +1069,16 @@ def healthz():
     return jsonify({"status": "ok", "time": datetime.now().strftime(TS_FMT)})
 
 
+@app.route("/favicon.ico")
+def favicon():
+    """浏览器默认会请求根路径 /favicon.ico（不看 <link>），这里直接给静态文件。
+
+    /favicon.ico 本来就在 OPEN_PATHS 里，所以免登录即可取到，不会 302 到登录页。
+    """
+    return send_file(os.path.join(app.static_folder, "icon", "favicon.ico"),
+                     mimetype="image/vnd.microsoft.icon", max_age=86400)
+
+
 @app.route("/api/servers")
 def api_servers():
     force = request.args.get("refresh") == "1"
