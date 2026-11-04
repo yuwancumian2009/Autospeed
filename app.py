@@ -668,8 +668,9 @@ def generate_chart(days=7):
         lat = [r[3] if r[3] is not None else float("nan") for r in rows]
         n = len(rows)
 
+        # 左右留白必须相等：内容含左侧刻度/单位，光对齐轴线会显得偏左
         gs = fig.add_gridspec(2, 1, height_ratios=[2.6, 1.45], hspace=0.20,
-                              left=0.072, right=0.830, top=0.795, bottom=0.125)
+                              left=0.144, right=0.902, top=0.795, bottom=0.125)
         ax1 = fig.add_subplot(gs[0])
         ax2 = fig.add_subplot(gs[1], sharex=ax1)
 
@@ -739,15 +740,15 @@ def generate_chart(days=7):
         plt.setp(ax1.get_xticklabels(), visible=False)
 
         # ---- 标题区 ----
-        fig.text(0.072, 0.965, "网络测速趋势", color=C_TXT, fontsize=19,
+        fig.text(0.144, 0.965, "网络测速趋势", color=C_TXT, fontsize=19,
                  fontweight="bold", va="top")
-        fig.text(0.072, 0.885, "%s · 共 %d 次测速 · 右上为最新一次" % (span, n),
+        fig.text(0.144, 0.885, "%s · 共 %d 次测速 · 右上为最新一次" % (span, n),
                  color=C_SUB, fontsize=11, va="top")
 
         kpis = [("下行 Mbps", down[-1], C_DOWN),
                 ("上行 Mbps", up[-1] if up[-1] == up[-1] else None, C_UP),
                 ("延迟 ms", lat[-1] if lat[-1] == lat[-1] else None, C_LAT)]
-        x = 0.830
+        x = 0.902
         for name, val, col in reversed(kpis):
             if val is None:
                 continue
