@@ -652,11 +652,13 @@ def generate_chart(days=7):
     conn.close()
 
     with _chart_lock:
-        fig = plt.figure(figsize=(8.4, 4.9), dpi=160, facecolor="white")
+        # 画布比例按企业微信图文卡片的图片框定：实测 1139x484 ≈ 2.35:1，
+        # 发 1.7:1 的图会被 cover 裁掉上下各约 12%，标题和横轴都会缺一块。
+        fig = plt.figure(figsize=(9.4, 4.0), dpi=150, facecolor="white")
         if not rows:
             fig.text(0.5, 0.5, "暂无数据，等待首次测速", ha="center", va="center",
-                     fontsize=20, color=C_SUB)
-            fig.savefig(CHART_FILE, dpi=160, facecolor="white")
+                     fontsize=18, color=C_SUB)
+            fig.savefig(CHART_FILE, dpi=150, facecolor="white")
             plt.close(fig)
             return CHART_FILE
 
@@ -666,8 +668,8 @@ def generate_chart(days=7):
         lat = [r[3] if r[3] is not None else float("nan") for r in rows]
         n = len(rows)
 
-        gs = fig.add_gridspec(2, 1, height_ratios=[3.0, 1], hspace=0.17,
-                              left=0.085, right=0.832, top=0.790, bottom=0.130)
+        gs = fig.add_gridspec(2, 1, height_ratios=[2.6, 1.45], hspace=0.20,
+                              left=0.072, right=0.830, top=0.795, bottom=0.125)
         ax1 = fig.add_subplot(gs[0])
         ax2 = fig.add_subplot(gs[1], sharex=ax1)
 
@@ -679,7 +681,7 @@ def generate_chart(days=7):
                 ax.spines[side].set_color("#DCE0E6")
             ax.grid(axis="y", color=C_GRID, linewidth=1.2)
             ax.set_axisbelow(True)
-            ax.tick_params(colors=C_AX, labelsize=13, length=0, pad=8)
+            ax.tick_params(colors=C_AX, labelsize=11.5, length=0, pad=6)
 
         # ---- 吞吐 ----
         ax1.fill_between(ts, down, 0, color=C_DOWN, alpha=0.06, linewidth=0)
@@ -696,7 +698,7 @@ def generate_chart(days=7):
         step1, top1 = _nice_axis(vmax1, 4)
         ax1.set_ylim(0, top1)
         ax1.set_yticks([i * step1 for i in range(int(top1 / step1) + 1)])
-        ax1.set_ylabel("Mbps", color=C_AX, fontsize=13, labelpad=10)
+        ax1.set_ylabel("Mbps", color=C_AX, fontsize=11.5, labelpad=8)
 
         # ---- 延迟 ----
         ax2.fill_between(ts, lat, 0, color=C_LAT, alpha=0.06, linewidth=0)
@@ -707,7 +709,7 @@ def generate_chart(days=7):
         step2 = max(5, math.ceil(vmax2 / 2 / 5) * 5)
         ax2.set_ylim(0, step2 * 2 * 1.10)
         ax2.set_yticks([0, step2, step2 * 2])
-        ax2.set_ylabel("ms", color=C_AX, fontsize=13, labelpad=10)
+        ax2.set_ylabel("ms", color=C_AX, fontsize=11.5, labelpad=8)
 
         # 右侧留一点空，让线尾标签不贴边
         pad = (ts[-1] - ts[0]) * 0.04 if ts[-1] > ts[0] else timedelta(hours=1)
@@ -722,8 +724,8 @@ def generate_chart(days=7):
             ax.plot([ts[-1]], [y], marker="o", markersize=6.5, color=col,
                     markeredgecolor="white", markeredgewidth=1.8,
                     zorder=5, clip_on=False)
-            ax.annotate(txt, xy=(ts[-1], y), xytext=(11, 0), textcoords="offset points",
-                        color=col, fontsize=13, va="center", fontweight="bold",
+            ax.annotate(txt, xy=(ts[-1], y), xytext=(10, 0), textcoords="offset points",
+                        color=col, fontsize=11.5, va="center", fontweight="bold",
                         annotation_clip=False)
 
         # 按数据索引等距取刻度：既保证首尾都有标签，又不会因落在可视范围外被裁掉
@@ -733,28 +735,28 @@ def generate_chart(days=7):
             idxs = list(range(n))
         ax2.set_xticks([ts[i] for i in idxs])
         ax2.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
-        plt.setp(ax2.get_xticklabels(), color=C_AX, fontsize=13)
+        plt.setp(ax2.get_xticklabels(), color=C_AX, fontsize=11.5)
         plt.setp(ax1.get_xticklabels(), visible=False)
 
         # ---- 标题区 ----
-        fig.text(0.085, 0.950, "网络测速趋势", color=C_TXT, fontsize=24,
+        fig.text(0.072, 0.965, "网络测速趋势", color=C_TXT, fontsize=19,
                  fontweight="bold", va="top")
-        fig.text(0.085, 0.866, "%s · 共 %d 次测速 · 右上为最新一次" % (span, n),
-                 color=C_SUB, fontsize=12.5, va="top")
+        fig.text(0.072, 0.885, "%s · 共 %d 次测速 · 右上为最新一次" % (span, n),
+                 color=C_SUB, fontsize=11, va="top")
 
         kpis = [("下行 Mbps", down[-1], C_DOWN),
                 ("上行 Mbps", up[-1] if up[-1] == up[-1] else None, C_UP),
                 ("延迟 ms", lat[-1] if lat[-1] == lat[-1] else None, C_LAT)]
-        x = 0.832
+        x = 0.830
         for name, val, col in reversed(kpis):
             if val is None:
                 continue
-            fig.text(x, 0.945, "%.1f" % val, color=col, fontsize=22,
+            fig.text(x, 0.960, "%.1f" % val, color=col, fontsize=16.5,
                      fontweight="bold", ha="right", va="top")
-            fig.text(x, 0.880, name, color=C_SUB, fontsize=12, ha="right", va="top")
-            x -= 0.132
+            fig.text(x, 0.870, name, color=C_SUB, fontsize=9.8, ha="right", va="top")
+            x -= 0.118
 
-        fig.savefig(CHART_FILE, dpi=160, facecolor="white")
+        fig.savefig(CHART_FILE, dpi=150, facecolor="white")
         plt.close(fig)
     return CHART_FILE
 
