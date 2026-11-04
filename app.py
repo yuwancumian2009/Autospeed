@@ -26,6 +26,7 @@ import hashlib
 import hmac
 import io
 import json
+import math
 import os
 import secrets
 import sqlite3
@@ -49,6 +50,19 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
+
+# 中文字体：仓库内自带的思源黑体子集（约 65KB），没有它中文会渲染成方框
+_CHART_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "static", "fonts", "NotoSansSC-Subset.ttf")
+try:
+    if os.path.exists(_CHART_FONT):
+        font_manager.fontManager.addfont(_CHART_FONT)
+        _CN_NAME = font_manager.FontProperties(fname=_CHART_FONT).get_name()
+        plt.rcParams["font.sans-serif"] = [_CN_NAME, "DejaVu Sans"]
+        plt.rcParams["axes.unicode_minus"] = False
+except Exception:
+    pass  # 字体缺失时退回英文数字渲染，不影响主流程
 
 app = Flask(__name__)
 
@@ -591,47 +605,158 @@ def evaluate_warning(res, cfg, intent):
 
 _chart_lock = threading.Lock()
 
+# 图表配色：与面板 Element Plus 主题一致，蓝=下行 / 绿=上行 / 橙=延迟
+C_DOWN, C_UP, C_LAT = "#409EFF", "#67C23A", "#E6A23C"
+C_TXT, C_SUB, C_AX, C_GRID = "#1F2D3D", "#7C8798", "#5A6577", "#EDF0F5"
+
+
+def _nice_axis(vmax, target=4):
+    """把纵轴上限凑成整刻度（0/25/50/75/100），避免顶部缺一格。"""
+    raw = max(vmax, 1e-6) / target
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(m * mag for m in (1, 2, 2.5, 5, 10) if raw <= m * mag)
+    return step, math.ceil(vmax / step) * step
+
+
+def _bridge(vals):
+    """把缺失值（NaN）用前一个有效值填平，供虚线桥接用。"""
+    out, last = [], None
+    for v in vals:
+        if v == v:
+            last = v
+            out.append(v)
+        else:
+            out.append(last if last is not None else float("nan"))
+    return out
+
 
 def generate_chart(days=7):
+    """生成企业微信图文用的趋势图。
+
+    上面板画上下行吞吐，下面板单独画延迟——延迟量级只有几十 ms，
+    和 Mbps 挤在同一个坐标系里会被压成贴底直线，所以拆成两个共享横轴的面板。
+    """
     if days == "all" or days is None:
-        sql, args = "SELECT timestamp, download, upload, ping FROM results ORDER BY timestamp ASC", ()
-        title = "Network Speed Trend (All)"
+        sql = ("SELECT timestamp, download, upload, ping FROM results "
+               "ORDER BY timestamp ASC")
+        args = ()
+        span = "全部历史"
     else:
         thr = (datetime.now() - timedelta(days=int(days))).strftime(TS_FMT)
         sql = ("SELECT timestamp, download, upload, ping FROM results "
                "WHERE timestamp >= ? ORDER BY timestamp ASC")
         args = (thr,)
-        title = f"Network Speed Trend (Last {days} Days)"
+        span = "近 %d 天" % int(days)
     conn = db()
     rows = conn.execute(sql, args).fetchall()
     conn.close()
 
     with _chart_lock:
-        fig, ax1 = plt.subplots(figsize=(10, 5))
+        fig = plt.figure(figsize=(8.4, 4.9), dpi=160, facecolor="white")
         if not rows:
-            ax1.text(0.5, 0.5, "Waiting for data...", ha="center", va="center",
-                     fontsize=18, color="gray")
-            ax1.axis("off")
+            fig.text(0.5, 0.5, "暂无数据，等待首次测速", ha="center", va="center",
+                     fontsize=20, color=C_SUB)
+            fig.savefig(CHART_FILE, dpi=160, facecolor="white")
+            plt.close(fig)
+            return CHART_FILE
+
+        ts = [datetime.strptime(str(r[0])[:19], TS_FMT) for r in rows]
+        down = [r[1] or 0 for r in rows]
+        up = [r[2] if r[2] is not None else float("nan") for r in rows]
+        lat = [r[3] if r[3] is not None else float("nan") for r in rows]
+        n = len(rows)
+
+        gs = fig.add_gridspec(2, 1, height_ratios=[3.0, 1], hspace=0.17,
+                              left=0.085, right=0.832, top=0.790, bottom=0.130)
+        ax1 = fig.add_subplot(gs[0])
+        ax2 = fig.add_subplot(gs[1], sharex=ax1)
+
+        for ax in (ax1, ax2):
+            ax.set_facecolor("white")
+            for side in ("top", "right"):
+                ax.spines[side].set_visible(False)
+            for side in ("left", "bottom"):
+                ax.spines[side].set_color("#DCE0E6")
+            ax.grid(axis="y", color=C_GRID, linewidth=1.2)
+            ax.set_axisbelow(True)
+            ax.tick_params(colors=C_AX, labelsize=13, length=0, pad=8)
+
+        # ---- 吞吐 ----
+        ax1.fill_between(ts, down, 0, color=C_DOWN, alpha=0.06, linewidth=0)
+        ax1.plot(ts, down, color=C_DOWN, linewidth=2.4, marker="o", markersize=2.8,
+                 markerfacecolor="white", markeredgewidth=1.2,
+                 solid_capstyle="round")
+        # 缺测处用虚线接上，避免断口被误认为绘图故障；实线在上层，只在断口露出虚线
+        ax1.plot(ts, _bridge(up), color=C_UP, linewidth=1.3, linestyle=(0, (3, 2)),
+                 alpha=0.55, zorder=1)
+        ax1.plot(ts, up, color=C_UP, linewidth=2.2, marker="o", markersize=2.8,
+                 markerfacecolor="white", markeredgewidth=1.2,
+                 solid_capstyle="round", zorder=3)
+        vmax1 = max([v for v in down if v] + [v for v in up if v == v] + [10]) * 1.03
+        step1, top1 = _nice_axis(vmax1, 4)
+        ax1.set_ylim(0, top1)
+        ax1.set_yticks([i * step1 for i in range(int(top1 / step1) + 1)])
+        ax1.set_ylabel("Mbps", color=C_AX, fontsize=13, labelpad=10)
+
+        # ---- 延迟 ----
+        ax2.fill_between(ts, lat, 0, color=C_LAT, alpha=0.06, linewidth=0)
+        ax2.plot(ts, lat, color=C_LAT, linewidth=2.0, marker="o", markersize=2.8,
+                 markerfacecolor="white", markeredgewidth=1.2,
+                 solid_capstyle="round")
+        vmax2 = max([v for v in lat if v], default=10)
+        step2 = max(5, math.ceil(vmax2 / 2 / 5) * 5)
+        ax2.set_ylim(0, step2 * 2 * 1.10)
+        ax2.set_yticks([0, step2, step2 * 2])
+        ax2.set_ylabel("ms", color=C_AX, fontsize=13, labelpad=10)
+
+        # 右侧留一点空，让线尾标签不贴边
+        pad = (ts[-1] - ts[0]) * 0.04 if ts[-1] > ts[0] else timedelta(hours=1)
+        ax1.set_xlim(ts[0], ts[-1] + pad)
+
+        # 末点高亮 + 线尾直接标注，省掉图例框
+        for ax, y, txt, col in ((ax1, down[-1], "下行", C_DOWN),
+                                (ax1, up[-1] if up[-1] == up[-1] else None, "上行", C_UP),
+                                (ax2, lat[-1] if lat[-1] == lat[-1] else None, "延迟", C_LAT)):
+            if y is None:
+                continue
+            ax.plot([ts[-1]], [y], marker="o", markersize=6.5, color=col,
+                    markeredgecolor="white", markeredgewidth=1.8,
+                    zorder=5, clip_on=False)
+            ax.annotate(txt, xy=(ts[-1], y), xytext=(11, 0), textcoords="offset points",
+                        color=col, fontsize=13, va="center", fontweight="bold",
+                        annotation_clip=False)
+
+        # 按数据索引等距取刻度：既保证首尾都有标签，又不会因落在可视范围外被裁掉
+        if n >= 4:
+            idxs = sorted({0, round(n / 3), round(2 * n / 3), n - 1})
         else:
-            ts = [datetime.strptime(r[0], TS_FMT) for r in rows]
-            ax1.set_title(title)
-            ax1.set_xlabel("Time")
-            ax1.set_ylabel("Speed (Mbps)")
-            ax1.plot(ts, [r[1] for r in rows], color="green", label="Download", linewidth=2)
-            ax1.plot(ts, [r[2] if r[2] is not None else float("nan") for r in rows],
-                     color="blue", label="Upload", linewidth=2)
-            ax1.grid(True, linestyle="--", alpha=0.5)
-            ax2 = ax1.twinx()
-            ax2.set_ylabel("Latency (ms)")
-            ax2.plot(ts, [r[3] for r in rows], color="orange", label="Latency",
-                     linestyle="--")
-            l1, la1 = ax1.get_legend_handles_labels()
-            l2, la2 = ax2.get_legend_handles_labels()
-            ax1.legend(l1 + l2, la1 + la2, loc="upper left")
-            ax1.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
-            fig.autofmt_xdate()
-        plt.savefig(CHART_FILE, format="png", bbox_inches="tight")
+            idxs = list(range(n))
+        ax2.set_xticks([ts[i] for i in idxs])
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
+        plt.setp(ax2.get_xticklabels(), color=C_AX, fontsize=13)
+        plt.setp(ax1.get_xticklabels(), visible=False)
+
+        # ---- 标题区 ----
+        fig.text(0.085, 0.950, "网络测速趋势", color=C_TXT, fontsize=24,
+                 fontweight="bold", va="top")
+        fig.text(0.085, 0.866, "%s · 共 %d 次测速 · 右上为最新一次" % (span, n),
+                 color=C_SUB, fontsize=12.5, va="top")
+
+        kpis = [("下行 Mbps", down[-1], C_DOWN),
+                ("上行 Mbps", up[-1] if up[-1] == up[-1] else None, C_UP),
+                ("延迟 ms", lat[-1] if lat[-1] == lat[-1] else None, C_LAT)]
+        x = 0.832
+        for name, val, col in reversed(kpis):
+            if val is None:
+                continue
+            fig.text(x, 0.945, "%.1f" % val, color=col, fontsize=22,
+                     fontweight="bold", ha="right", va="top")
+            fig.text(x, 0.880, name, color=C_SUB, fontsize=12, ha="right", va="top")
+            x -= 0.132
+
+        fig.savefig(CHART_FILE, dpi=160, facecolor="white")
         plt.close(fig)
+    return CHART_FILE
 
 
 # ==========================================================================
